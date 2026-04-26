@@ -1,4 +1,5 @@
 import { AppShell } from "@/components/app-shell";
+import { getFeedHealth, getFeatures, getIncidents } from "@/lib/api";
 
 type FeedPageProps = {
   params: Promise<{ feedId: string }>;
@@ -6,6 +7,15 @@ type FeedPageProps = {
 
 export default async function FeedPage({ params }: FeedPageProps) {
   const { feedId } = await params;
+  const [health, features, incidents] = await Promise.all([
+    getFeedHealth(feedId),
+    getFeatures(),
+    getIncidents(),
+  ]);
+
+  const feedFeatures = features.filter((feature) => feature.feed_id === feedId);
+  const relatedIncidents = incidents.filter((incident) => incident.feed_id === feedId);
+  const latestSnapshot = health?.latest_snapshot;
 
   return (
     <AppShell eyebrow="Feed Drill-down" title={`Feed detail: ${feedId}`}>
@@ -19,9 +29,21 @@ export default async function FeedPage({ params }: FeedPageProps) {
           </h2>
           <div className="mt-6 grid gap-4 md:grid-cols-3">
             {[
-              ["Freshness", "39 sec", "SLA 45 sec"],
-              ["Schema version", "2.4.0", "shifted 2h ago"],
-              ["Revision pressure", "1.8x", "baseline 0.5x"],
+              [
+                "Freshness",
+                `${health?.latency_seconds ?? "--"} sec`,
+                `SLA ${health?.feed.freshness_sla_seconds ?? "--"} sec`,
+              ],
+              [
+                "Schema version",
+                health?.schema_version ?? "unknown",
+                `${health?.incident_count ?? 0} linked incidents`,
+              ],
+              [
+                "Weighted trust",
+                latestSnapshot ? `${latestSnapshot.weighted_trust_score.toFixed(1)}` : "--",
+                `state ${latestSnapshot?.status ?? "unknown"}`,
+              ],
             ].map(([label, value, meta]) => (
               <div key={label} className="rounded-xl bg-white/4 p-4">
                 <div className="text-xs uppercase tracking-[0.22em] text-white/45">
@@ -35,7 +57,33 @@ export default async function FeedPage({ params }: FeedPageProps) {
             ))}
           </div>
           <div className="mt-6 rounded-2xl bg-[#060e20] p-4 font-[family-name:var(--font-mono)] text-sm text-cyan-100">
-            {`{\n  "feed": "${feedId}",\n  "payload_status": "replayed",\n  "fields_missing": ["sentiment_score", "event_group"],\n  "revision_window": "T-07m",\n  "action": "degrade research usage"\n}`}
+            {`{\n  "feed": "${feedId}",\n  "vendor": "${health?.feed.vendor ?? "unknown"}",\n  "region": "${health?.feed.region ?? "unknown"}",\n  "status": "${latestSnapshot?.status ?? "unknown"}",\n  "weighted_trust_score": ${latestSnapshot?.weighted_trust_score?.toFixed(1) ?? "null"},\n  "features": [${feedFeatures.map((feature) => `"${feature.name}"`).join(", ")}]\n}`}
+          </div>
+          <div className="mt-6 grid gap-4 md:grid-cols-2">
+            <div className="rounded-xl bg-white/4 p-4">
+              <div className="text-xs uppercase tracking-[0.22em] text-white/45">
+                Reliability vector
+              </div>
+              <div className="mt-3 space-y-2 text-sm text-white/65">
+                <div>Freshness: {latestSnapshot?.freshness ?? "--"}</div>
+                <div>Completeness: {latestSnapshot?.completeness ?? "--"}</div>
+                <div>Schema stability: {latestSnapshot?.schema_stability ?? "--"}</div>
+                <div>Entity coverage: {latestSnapshot?.entity_coverage ?? "--"}</div>
+              </div>
+            </div>
+            <div className="rounded-xl bg-white/4 p-4">
+              <div className="text-xs uppercase tracking-[0.22em] text-white/45">
+                Downstream features
+              </div>
+              <div className="mt-3 space-y-2 text-sm text-white/65">
+                {feedFeatures.map((feature) => (
+                  <div key={feature.id}>
+                    <div className="text-cyan-100">{feature.name}</div>
+                    <div className="text-xs text-white/45">{feature.owner}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         </section>
 
@@ -47,18 +95,22 @@ export default async function FeedPage({ params }: FeedPageProps) {
             Recent interventions
           </h2>
           <div className="mt-6 space-y-4">
-            {[
-              ["Critical", "Latency breach crossed stale threshold"],
-              ["Warning", "Null burst detected in vendor backfill"],
-              ["Resolved", "Schema mutation mapped by normalizer"],
-            ].map(([level, summary]) => (
-              <div key={summary} className="rounded-xl bg-white/4 p-4">
+            {relatedIncidents.map((incident) => (
+              <div key={incident.id} className="rounded-xl bg-white/4 p-4">
                 <div className="text-xs uppercase tracking-[0.22em] text-white/45">
-                  {level}
+                  {incident.severity}
                 </div>
-                <div className="mt-2 text-sm text-white/75">{summary}</div>
+                <div className="mt-2 text-sm text-white/75">{incident.title}</div>
+                <div className="mt-2 text-xs text-white/45">
+                  {incident.acknowledged ? "Acknowledged" : "Awaiting acknowledgment"}
+                </div>
               </div>
             ))}
+            {relatedIncidents.length === 0 ? (
+              <div className="rounded-xl bg-white/4 p-4 text-sm text-white/55">
+                No active incidents are currently linked to this feed.
+              </div>
+            ) : null}
           </div>
         </aside>
       </div>

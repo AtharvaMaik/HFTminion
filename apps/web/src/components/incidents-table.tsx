@@ -1,13 +1,17 @@
 "use client";
 
 import type { IncidentRecord } from "@contracts";
+import Link from "next/link";
 import {
   flexRender,
   getCoreRowModel,
   useReactTable,
   type ColumnDef,
 } from "@tanstack/react-table";
-import { useMemo } from "react";
+import { useMemo, useOptimistic, useTransition } from "react";
+import { useRouter } from "next/navigation";
+
+import { acknowledgeIncident } from "@/lib/api";
 
 const severityClass = {
   healthy: "text-emerald-200 bg-emerald-400/12",
@@ -16,10 +20,45 @@ const severityClass = {
 };
 
 export function IncidentsTable({ incidents }: { incidents: IncidentRecord[] }) {
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+  const [optimisticIncidents, setOptimisticIncidents] = useOptimistic(
+    incidents,
+    (state, incidentId: string) =>
+      state.map((incident) =>
+        incident.id === incidentId
+          ? { ...incident, acknowledged: true, status: "investigating" as const }
+          : incident
+      )
+  );
+
   const columns = useMemo<ColumnDef<IncidentRecord>[]>(
     () => [
-      { accessorKey: "id", header: "Incident" },
-      { accessorKey: "title", header: "Summary" },
+      {
+        accessorKey: "id",
+        header: "Incident",
+        cell: ({ row }) => (
+          <div>
+            <div className="font-medium text-cyan-100">{row.original.id}</div>
+            <Link
+              href={`/feeds/${row.original.feed_id}`}
+              className="mt-1 inline-block text-xs text-cyan-200/70 hover:text-cyan-100"
+            >
+              {row.original.feed_id}
+            </Link>
+          </div>
+        ),
+      },
+      {
+        accessorKey: "title",
+        header: "Summary",
+        cell: ({ row }) => (
+          <div>
+            <div>{row.original.title}</div>
+            <div className="mt-1 text-xs text-white/50">{row.original.summary}</div>
+          </div>
+        ),
+      },
       {
         accessorKey: "severity",
         header: "Severity",
@@ -33,20 +72,73 @@ export function IncidentsTable({ incidents }: { incidents: IncidentRecord[] }) {
           </span>
         ),
       },
-      { accessorKey: "status", header: "Workflow" },
+      {
+        accessorKey: "status",
+        header: "Workflow",
+        cell: ({ row }) => (
+          <div>
+            <div className="uppercase tracking-[0.18em] text-white/80">
+              {row.original.status}
+            </div>
+            <div className="mt-1 text-xs text-white/45">
+              {row.original.acknowledged ? "Acknowledged" : "Needs acknowledgment"}
+            </div>
+          </div>
+        ),
+      },
       {
         accessorKey: "impacted_features",
         header: "Impacted Features",
-        cell: ({ row }) => row.original.impacted_features.join(", "),
+        cell: ({ row }) => (
+          <div className="flex flex-wrap gap-2">
+            {row.original.impacted_features.map((feature) => (
+              <span
+                key={feature}
+                className="rounded-full bg-white/6 px-2.5 py-1 text-xs text-white/75"
+              >
+                {feature}
+              </span>
+            ))}
+          </div>
+        ),
+      },
+      {
+        id: "actions",
+        header: "Action",
+        cell: ({ row }) =>
+          row.original.acknowledged ? (
+            <Link
+              href="/replay"
+              className="inline-flex rounded-full border border-cyan-300/20 px-3 py-1 text-xs uppercase tracking-[0.18em] text-cyan-100 hover:bg-cyan-400/10"
+            >
+              Replay
+            </Link>
+          ) : (
+            <button
+              type="button"
+              disabled={isPending}
+              onClick={() => {
+                const incidentId = row.original.id;
+                startTransition(async () => {
+                  setOptimisticIncidents(incidentId);
+                  await acknowledgeIncident(incidentId);
+                  router.refresh();
+                });
+              }}
+              className="inline-flex rounded-full border border-orange-300/25 px-3 py-1 text-xs uppercase tracking-[0.18em] text-orange-100 transition-colors hover:bg-orange-300/12 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Acknowledge
+            </button>
+          ),
       },
     ],
-    []
+    [isPending, router, setOptimisticIncidents]
   );
 
   // TanStack Table is intentionally used here for the operations grid.
   // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
-    data: incidents,
+    data: optimisticIncidents,
     columns,
     getCoreRowModel: getCoreRowModel(),
   });

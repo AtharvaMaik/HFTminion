@@ -49,3 +49,41 @@ export type OverviewResponse = {
   incidents: IncidentRecord[];
 };
 
+export type FeedHealth = {
+  feed: FeedDefinition;
+  latest_snapshot: ReliabilitySnapshot;
+  latency_seconds: number;
+  schema_version: string;
+  incident_count: number;
+};
+
+export type FeatureDefinition = {
+  id: string;
+  name: string;
+  feed_id: string;
+  description: string;
+  owner: string;
+};
+
+export type FeatureSnapshot = {
+  feature_id: string;
+  feature_name: string;
+  latest_value: number;
+  reliability: ReliabilitySnapshot;
+  lineage: string[];
+};
+
+export type ReplayPoint = {
+  timestamp: string;
+  expected_value: number;
+  actual_value: number;
+  trust_score: number;
+  blocked: boolean;
+};
+
+export type ReplayResponse = {
+  feature_id: string;
+  feature_name: string;
+  points: ReplayPoint[];
+};
+

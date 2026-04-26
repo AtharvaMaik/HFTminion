@@ -3,10 +3,10 @@ import { Activity, Database, Radar, ShieldAlert, SlidersHorizontal } from "lucid
 
 const nav = [
   { label: "Overview", href: "/", icon: Activity },
-  { label: "Feeds", href: "/feeds/feed-global-news", icon: Database },
+  { label: "Feeds", href: "/feeds", icon: Database },
   { label: "Incidents", href: "/incidents", icon: ShieldAlert },
-  { label: "Replay", href: "/incidents", icon: Radar },
-  { label: "Config", href: "/feeds/feed-global-news", icon: SlidersHorizontal },
+  { label: "Replay", href: "/replay", icon: Radar },
+  { label: "Config", href: "/config", icon: SlidersHorizontal },
 ];
 
 export function AppShell({
