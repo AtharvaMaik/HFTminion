@@ -1,0 +1,58 @@
+@import "tailwindcss";
+
+:root {
+  --background: #0b1326;
+  --foreground: #dae2fd;
+  --surface: #131b2e;
+  --surface-high: #222a3d;
+  --surface-low: #060e20;
+  --surface-border: rgba(133, 147, 153, 0.14);
+  --primary: #00d1ff;
+  --primary-soft: #a4e6ff;
+  --secondary: #4edea3;
+  --danger: #ffaaa4;
+  --warning: #ffd1cd;
+  --muted: #8fa0b8;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-sans-ui);
+  --font-mono: var(--font-mono-ui);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background:
+    radial-gradient(circle at top left, rgba(0, 209, 255, 0.16), transparent 32%),
+    radial-gradient(circle at top right, rgba(78, 222, 163, 0.08), transparent 25%),
+    var(--background);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans-ui), sans-serif;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.panel {
+  background: linear-gradient(180deg, rgba(23, 31, 51, 0.96), rgba(11, 19, 38, 0.94));
+  border: 1px solid var(--surface-border);
+  box-shadow: 0 0 0 1px rgba(76, 214, 255, 0.05), 0 24px 80px rgba(0, 0, 0, 0.22);
+}
+
+.grid-glow {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+  background-size: 24px 24px;
+}

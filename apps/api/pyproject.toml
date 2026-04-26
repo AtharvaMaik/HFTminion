@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "altdata-reliability-api"
+version = "0.1.0"
+description = "FastAPI control plane for AltData Reliability OS"
+requires-python = ">=3.10"
+dependencies = [
+  "fastapi>=0.115,<1.0",
+  "uvicorn>=0.34,<1.0",
+  "pydantic>=2.11,<3.0",
+  "sqlalchemy>=2.0,<3.0",
+  "alembic>=1.16,<2.0",
+  "httpx>=0.28,<1.0"
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3,<9.0"
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+

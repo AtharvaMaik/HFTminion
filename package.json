@@ -1,0 +1,19 @@
+{
+  "name": "hftminion",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build:web": "npm --prefix apps/web run build",
+    "dev:web": "npm --prefix apps/web run dev",
+    "lint:web": "npm --prefix apps/web run lint",
+    "typecheck:web": "npm --prefix apps/web run typecheck",
+    "test:api": "python -m pytest apps/api/tests",
+    "test:scorer": "python -m pytest services/scorer/tests",
+    "test": "npm run test:api && npm run test:scorer"
+  }
+}
+
