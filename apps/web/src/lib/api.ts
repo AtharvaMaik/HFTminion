@@ -9,12 +9,26 @@ import type {
 
 import { fallbackOverview } from "./mock-data";
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
+function getApiBaseUrl() {
+  if (process.env.NEXT_PUBLIC_API_BASE_URL) {
+    return process.env.NEXT_PUBLIC_API_BASE_URL;
+  }
+
+  if (typeof window !== "undefined") {
+    return "";
+  }
+
+  if (process.env.VERCEL_URL) {
+    return `https://${process.env.VERCEL_URL}`;
+  }
+
+  return "http://127.0.0.1:8000";
+}
 
 export async function getOverview(): Promise<OverviewResponse> {
+  const apiBaseUrl = getApiBaseUrl();
   try {
-    const response = await fetch(`${API_BASE_URL}/api/v1/metrics/overview`, {
+    const response = await fetch(`${apiBaseUrl}/api/v1/metrics/overview`, {
       next: { revalidate: 30 },
     });
     if (!response.ok) {
@@ -27,8 +41,9 @@ export async function getOverview(): Promise<OverviewResponse> {
 }
 
 async function apiGet<T>(path: string, fallback: T): Promise<T> {
+  const apiBaseUrl = getApiBaseUrl();
   try {
-    const response = await fetch(`${API_BASE_URL}${path}`, {
+    const response = await fetch(`${apiBaseUrl}${path}`, {
       next: { revalidate: 30 },
     });
     if (!response.ok) {
@@ -53,8 +68,9 @@ export async function getIncidents(): Promise<IncidentRecord[]> {
 }
 
 export async function acknowledgeIncident(incidentId: string): Promise<IncidentRecord | null> {
+  const apiBaseUrl = getApiBaseUrl();
   try {
-    const response = await fetch(`${API_BASE_URL}/api/v1/incidents/${incidentId}/acknowledge`, {
+    const response = await fetch(`${apiBaseUrl}/api/v1/incidents/${incidentId}/acknowledge`, {
       method: "POST",
       headers: {
         "content-type": "application/json",

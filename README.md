@@ -4,10 +4,11 @@ AltData Reliability OS is a control plane for alternative-data operations in res
 
 This repository currently contains an MVP vertical slice:
 - A Next.js operations UI for dashboard, feed drill-down, and incident replay
-- A FastAPI control-plane API with seeded feed, feature, and incident data
+- A FastAPI control-plane API with seeded or database-backed feed, feature, and incident data
 - A scoring module for weighted trust computation
 - Synthetic ingestion connectors for local development
 - Docker and Terraform scaffolding for local dependencies and AWS direction
+- A Vercel multi-service deployment path for sharing the web UI and API on one domain
 
 ## What It Does
 
@@ -127,6 +128,21 @@ The API is served at:
 http://127.0.0.1:8000
 ```
 
+### Run the API in Database Mode
+
+The API can now boot in a persistent database-backed mode instead of relying only on in-memory seeded state.
+
+```powershell
+$env:DATA_MODE="database"
+$env:DATABASE_URL="postgresql://altdata:altdata@localhost:15432/altdata"
+python -m uvicorn apps.api.app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+When `DATA_MODE=database`, startup will:
+- create the persistence tables
+- seed the current demo records into the database once
+- serve feeds, incidents, replay, and overview data from durable storage
+
 ### Run Local Infra
 
 ```powershell
@@ -157,6 +173,12 @@ npm run test:api
 npm run test:scorer
 ```
 
+### Deployment Build Check
+
+```powershell
+npm run build:web
+```
+
 ### Manual Smoke Checks
 
 API:
@@ -171,6 +193,53 @@ UI:
 - `/`
 - `/feeds/feed-global-news`
 - `/incidents`
+
+## Deployment
+
+### Shared Web Deployment
+
+The repo is configured for a shared Vercel deployment using the root [vercel.json](./vercel.json), with:
+- `apps/web` served as the primary Next.js frontend
+- `apps/api/app/main.py` served as the FastAPI backend
+
+The frontend now resolves API requests in this order:
+1. `NEXT_PUBLIC_API_BASE_URL` if explicitly set
+2. the current Vercel deployment URL in hosted environments
+3. `http://127.0.0.1:8000` for local development
+
+That means the deployed UI can call the co-hosted API without pointing at localhost.
+
+### Vercel Setup
+
+One-time project setup:
+
+```powershell
+npm install -g vercel
+vercel
+```
+
+If the Vercel project is not linked yet, run the command from the repository root so Vercel picks up the root `vercel.json`.
+
+For production:
+
+```powershell
+vercel --prod
+```
+
+### Recommended Environment Variables
+
+For local or hosted database-backed API mode, set:
+
+```text
+DATA_MODE=database
+DATABASE_URL=postgresql://altdata:altdata@localhost:15432/altdata
+```
+
+If you want the frontend to target an external API instead of the co-hosted service, set:
+
+```text
+NEXT_PUBLIC_API_BASE_URL=https://your-api-host.example.com
+```
 
 ## How To Integrate This Into a Real Pipeline
 
@@ -346,4 +415,3 @@ Alternative data fails in subtle ways:
 - downstream features drift before anyone notices
 
 This project exists to make those failures visible before they become trading or research mistakes.
-
