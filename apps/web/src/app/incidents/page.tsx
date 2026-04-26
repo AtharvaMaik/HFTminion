@@ -1,8 +1,14 @@
 import { AppShell } from "@/components/app-shell";
 import { IncidentsTable } from "@/components/incidents-table";
-import { fallbackOverview } from "@/lib/mock-data";
+import { getIncidents, getReplay } from "@/lib/api";
 
-export default function IncidentsPage() {
+export default async function IncidentsPage() {
+  const [incidents, replay] = await Promise.all([
+    getIncidents(),
+    getReplay("feat-news-sentiment"),
+  ]);
+  const latestPoint = replay?.points.at(-1);
+
   return (
     <AppShell eyebrow="Incident Replay" title="Historical and active incident analysis">
       <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
@@ -15,7 +21,7 @@ export default function IncidentsPage() {
               Triage-ready incident ledger
             </h2>
           </div>
-          <IncidentsTable incidents={fallbackOverview.incidents} />
+          <IncidentsTable incidents={incidents} />
         </section>
 
         <section className="panel rounded-2xl p-5">
@@ -31,7 +37,7 @@ export default function IncidentsPage() {
                 Expected
               </div>
               <pre className="mt-3 whitespace-pre-wrap font-[family-name:var(--font-mono)] text-xs text-emerald-100">
-                {`sentiment_score: -0.22\nevent_group: "macro"\ntrust_state: "degrade"\nblocked: false`}
+                {`sentiment_score: ${replay?.points.at(0)?.expected_value.toFixed(2) ?? "-0.22"}\nevent_group: "macro"\ntrust_state: "degrade"\nblocked: false`}
               </pre>
             </div>
             <div className="rounded-xl bg-white/4 p-4">
@@ -39,12 +45,12 @@ export default function IncidentsPage() {
                 Actual
               </div>
               <pre className="mt-3 whitespace-pre-wrap font-[family-name:var(--font-mono)] text-xs text-rose-100">
-                {`sentiment_score: null\nevent_group: ""\ntrust_state: "critical"\nblocked: true`}
+                {`sentiment_score: ${latestPoint?.actual_value.toFixed(2) ?? "null"}\nevent_group: ""\ntrust_state: "${latestPoint?.blocked ? "critical" : "healthy"}"\nblocked: ${latestPoint?.blocked ? "true" : "false"}`}
               </pre>
             </div>
           </div>
           <div className="mt-6 rounded-xl bg-cyan-400/8 p-4 text-sm text-cyan-50">
-            Decision view: this feature would be blocked for downstream research from T-7m until acknowledgment clears the stale delivery window.
+            Decision view: this feature would be {latestPoint?.blocked ? "blocked" : "passed"} for downstream research while the replay drift remains outside the trusted band.
           </div>
         </section>
       </div>
