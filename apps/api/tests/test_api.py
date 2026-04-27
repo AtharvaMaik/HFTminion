@@ -90,10 +90,13 @@ def live_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.setattr(app_data, "SNAPSHOTS", live_snapshots)
     monkeypatch.setattr(app_seed, "SNAPSHOTS", live_snapshots)
 
-    def _fake_fetch_snapshot(self, symbol: str, freshness_sla_seconds: int) -> BinanceSnapshot:
+    def _fake_fetch_snapshot(self, freshness_sla_seconds: int) -> BinanceSnapshot:
         computed_at = datetime.utcnow().replace(microsecond=0)
         return BinanceSnapshot(
-            symbol=symbol,
+            symbol=self.default_symbol,
+            source_name="Binance",
+            source_lineage_prefix=[f"binance:{self.default_symbol}", "api/v3/depth", "api/v3/ticker/24hr"],
+            primary_feature_id="feat-order-imbalance",
             avg_price=100000.0,
             last_price=100120.0,
             price_change_pct=0.25,
@@ -239,6 +242,13 @@ def test_live_feature_and_ingestion_run_use_vendor_refresh(live_client: TestClie
     run_body = run_response.json()
     assert run_body["status"] == "completed"
     assert run_body["run_id"]
+
+
+def test_live_mode_feature_lineage_comes_from_connector(live_client: TestClient):
+    response = live_client.get("/api/v1/features/feat-headline-velocity/reliability")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["lineage"][0].startswith("source:")
 
 
 def test_live_mode_lists_only_live_backed_feeds(live_client: TestClient):

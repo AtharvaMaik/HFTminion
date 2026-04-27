@@ -10,7 +10,7 @@ from ..repositories import (
     MetricsRepository,
     ReplayRepository,
 )
-from .live_vendor import LIVE_FEATURE_ID, LiveFeedRefreshService
+from .live_vendor import LiveFeedRefreshService
 from ..schemas import (
     FeatureDefinition,
     FeatureSnapshot,
@@ -76,7 +76,8 @@ class CurrentStateService:
         self.live_refresh = LiveFeedRefreshService(session)
 
     def list_feeds(self) -> list[FeedDefinition]:
-        self.live_refresh.ensure_feed_is_current(self.live_refresh.settings.live_vendor_feed_id)
+        if self.live_refresh.is_live_mode_enabled():
+            self.live_refresh.refresh_registered_live_feeds()
         return [_serialize_feed(feed) for feed in self.feed_repository.list_feeds()]
 
     def get_feed_health(self, feed_id: str) -> FeedHealth:
@@ -109,9 +110,9 @@ class CurrentStateService:
         ]
 
     def get_feature_snapshot(self, feature_id: str) -> FeatureSnapshot:
-        if feature_id == LIVE_FEATURE_ID:
-            self.live_refresh.ensure_feed_is_current(self.live_refresh.settings.live_vendor_feed_id)
         feature = self.feature_repository.get_feature(feature_id)
+        if self.live_refresh.is_live_feed(feature.feed_id):
+            self.live_refresh.ensure_feed_is_current(feature.feed_id)
         snapshot = self.feature_repository.get_latest_snapshot(feature_id)
         return FeatureSnapshot(
             feature_id=feature.id,
@@ -122,11 +123,13 @@ class CurrentStateService:
         )
 
     def list_incidents(self) -> list[IncidentRecord]:
-        self.live_refresh.ensure_feed_is_current(self.live_refresh.settings.live_vendor_feed_id)
+        if self.live_refresh.is_live_mode_enabled():
+            self.live_refresh.refresh_registered_live_feeds()
         return [_serialize_incident(incident) for incident in self.incident_repository.list_incidents()]
 
     def metrics_overview(self) -> OverviewResponse:
-        self.live_refresh.ensure_feed_is_current(self.live_refresh.settings.live_vendor_feed_id)
+        if self.live_refresh.is_live_mode_enabled():
+            self.live_refresh.refresh_registered_live_feeds()
         incidents = [_serialize_incident(incident) for incident in self.metrics_repository.list_incidents()]
         snapshots = self.metrics_repository.list_latest_snapshots()
         average_trust = round(sum(snapshot.weighted_trust_score for snapshot in snapshots) / max(1, len(snapshots)), 1)
@@ -163,9 +166,9 @@ class CurrentStateService:
         )
 
     def replay(self, feature_id: str) -> ReplayResponse:
-        if feature_id == LIVE_FEATURE_ID:
-            self.live_refresh.ensure_feed_is_current(self.live_refresh.settings.live_vendor_feed_id)
         feature = self.feature_repository.get_feature(feature_id)
+        if self.live_refresh.is_live_feed(feature.feed_id):
+            self.live_refresh.ensure_feed_is_current(feature.feed_id)
         points = self.replay_repository.list_points(feature_id)
         return ReplayResponse(
             feature_id=feature.id,

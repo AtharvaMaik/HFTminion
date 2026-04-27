@@ -14,15 +14,22 @@ from ..repositories.incident_repository import IncidentRepository
 from ..repositories.ingestion_repository import IngestionRepository
 from ..repositories.replay_repository import ReplayRepository
 from ..scoring import ReliabilityInputs, classify_status, compute_weighted_trust_score
+from .live_connectors import get_live_connectors
 
 
 LIVE_FEATURE_ID = "feat-order-imbalance"
-LIVE_INCIDENT_ID = "inc-live-feed-binance-agg"
+
+
+def get_live_incident_id(feed_id: str) -> str:
+    return f"inc-live-feed-{feed_id.removeprefix('feed-')}"
 
 
 @dataclass(frozen=True)
 class BinanceSnapshot:
     symbol: str
+    source_name: str
+    source_lineage_prefix: list[str]
+    primary_feature_id: str
     avg_price: float
     last_price: float
     price_change_pct: float
@@ -37,8 +44,14 @@ class BinanceSnapshot:
 
 
 class BinanceSpotConnector:
+    feed_id = "feed-binance-agg"
+    source_name = "Binance"
+    primary_feature_id = LIVE_FEATURE_ID
+    schema_version = "binance-spot-v3"
+
     def __init__(self) -> None:
         self.settings = get_settings()
+        self.default_symbol = self.settings.live_vendor_symbol
 
     def _get_json(self, path: str, params: dict[str, str | int]) -> dict | list:
         with httpx.Client(
@@ -49,7 +62,8 @@ class BinanceSpotConnector:
             response.raise_for_status()
             return response.json()
 
-    def fetch_snapshot(self, symbol: str, freshness_sla_seconds: int) -> BinanceSnapshot:
+    def fetch_snapshot(self, _freshness_sla_seconds: int) -> BinanceSnapshot:
+        symbol = self.default_symbol
         avg_price = self._get_json("/api/v3/avgPrice", {"symbol": symbol})
         ticker = self._get_json("/api/v3/ticker/24hr", {"symbol": symbol, "type": "FULL"})
         depth = self._get_json("/api/v3/depth", {"symbol": symbol, "limit": 5})
@@ -66,7 +80,7 @@ class BinanceSpotConnector:
 
         replay_points = [
             ReplayPointModel(
-                feature_id=LIVE_FEATURE_ID,
+                feature_id=self.primary_feature_id,
                 timestamp=datetime.utcfromtimestamp(int(trade["T"]) / 1000).replace(microsecond=0),
                 expected_value=avg_price_value,
                 actual_value=float(trade["p"]),
@@ -78,11 +92,14 @@ class BinanceSpotConnector:
 
         return BinanceSnapshot(
             symbol=symbol,
+            source_name=self.source_name,
+            source_lineage_prefix=[f"binance:{symbol}", "api/v3/depth", "api/v3/ticker/24hr"],
+            primary_feature_id=self.primary_feature_id,
             avg_price=avg_price_value,
             last_price=float(ticker["lastPrice"]),
             price_change_pct=float(ticker["priceChangePercent"]),
             latency_seconds=latency_seconds,
-            schema_version="binance-spot-v3",
+            schema_version=self.schema_version,
             bid_qty=bid_qty,
             ask_qty=ask_qty,
             trade_count=int(ticker["count"]),
@@ -101,16 +118,29 @@ class LiveFeedRefreshService:
         self.replay_repository = ReplayRepository(session)
         self.ingestion_repository = IngestionRepository(session)
         self.incident_repository = IncidentRepository(session)
-        self.connector = BinanceSpotConnector()
+        self.connectors = get_live_connectors()
 
     def is_live_mode_enabled(self) -> bool:
         return self.settings.data_mode == "live"
 
+    def get_connector_for_feed(self, feed_id: str):
+        return self.connectors.get(feed_id)
+
     def is_live_feed(self, feed_id: str) -> bool:
-        return self.is_live_mode_enabled() and feed_id == self.settings.live_vendor_feed_id
+        return self.is_live_mode_enabled() and self.get_connector_for_feed(feed_id) is not None
+
+    def refresh_registered_live_feeds(self):
+        if not self.connectors:
+            raise RuntimeError("No live connectors registered")
+
+        latest_run = None
+        for feed_id in self.connectors:
+            latest_run = self.refresh_live_feed(feed_id)
+        return latest_run
 
     def ensure_feed_is_current(self, feed_id: str) -> None:
-        if not self.is_live_feed(feed_id):
+        connector = self.get_connector_for_feed(feed_id)
+        if not self.is_live_mode_enabled() or connector is None:
             print(
                 "live_refresh_skipped",
                 {
@@ -125,7 +155,7 @@ class LiveFeedRefreshService:
         if latest_snapshot is not None:
             age_seconds = int((datetime.utcnow().replace(microsecond=0) - latest_snapshot.computed_at).total_seconds())
             if (
-                latest_snapshot.schema_version == "binance-spot-v3"
+                latest_snapshot.schema_version == connector.schema_version
                 and age_seconds <= self.settings.live_refresh_window_seconds
             ):
                 print(
@@ -142,19 +172,29 @@ class LiveFeedRefreshService:
             "live_refresh_triggered",
             {
                 "feed_id": feed_id,
-                "symbol": self.settings.live_vendor_symbol,
+                "source_name": connector.source_name,
                 "data_mode": self.settings.data_mode,
             },
         )
-        self.refresh_live_feed()
+        self.refresh_live_feed(feed_id)
 
-    def refresh_live_feed(self):
-        feed_id = self.settings.live_vendor_feed_id
+    def refresh_live_feed(self, feed_id: str):
+        connector = self.get_connector_for_feed(feed_id)
+        if connector is None:
+            raise KeyError(f"No live connector registered for feed_id={feed_id}")
+
         feed = self.feed_repository.get_feed(feed_id)
         run = self.ingestion_repository.create_run(feed_id=feed_id, run_type="poll", status="running")
+        source_name = connector.source_name
+        source_symbol = feed_id
+        impacted_feature_name = feed_id
 
         try:
-            snapshot = self.connector.fetch_snapshot(self.settings.live_vendor_symbol, feed.freshness_sla_seconds)
+            snapshot = connector.fetch_snapshot(feed.freshness_sla_seconds)
+            source_symbol = snapshot.symbol
+            feature_id = connector.primary_feature_id
+            feature = self.feature_repository.get_feature(feature_id)
+            impacted_feature_name = feature.name
 
             freshness = max(
                 0.0,
@@ -204,19 +244,14 @@ class LiveFeedRefreshService:
 
             self.feature_repository.create_snapshot(
                 FeatureSnapshotModel(
-                    feature_id=LIVE_FEATURE_ID,
+                    feature_id=feature_id,
                     feed_snapshot_id=feed_snapshot.id,
                     source_timestamp=snapshot.computed_at,
                     latest_value=feature_value,
                     trust_score=weighted_trust,
                     blocked=status == "critical",
                     lineage=json.dumps(
-                        [
-                            f"binance:{snapshot.symbol}",
-                            "api/v3/depth",
-                            "api/v3/ticker/24hr",
-                            LIVE_FEATURE_ID,
-                        ]
+                        [*snapshot.source_lineage_prefix, feature_id]
                     ),
                 )
             )
@@ -225,7 +260,7 @@ class LiveFeedRefreshService:
             for point in snapshot.replay_points:
                 replay_points.append(
                     ReplayPointModel(
-                        feature_id=point.feature_id,
+                        feature_id=feature_id,
                         timestamp=point.timestamp,
                         expected_value=point.expected_value,
                         actual_value=point.actual_value,
@@ -240,30 +275,32 @@ class LiveFeedRefreshService:
                         blocked=status == "critical",
                     )
                 )
-            self.replay_repository.replace_points(LIVE_FEATURE_ID, replay_points)
+            self.replay_repository.replace_points(feature_id, replay_points)
 
             if status == "critical":
+                incident_id = get_live_incident_id(feed_id)
                 self.incident_repository.upsert_live_incident(
-                    LIVE_INCIDENT_ID,
+                    incident_id,
                     feed_id=feed_id,
-                    title="Live Binance feed trust breach",
+                    title=f"Live {source_name} feed trust breach",
                     severity=status,
                     status="triage",
-                    summary=(
-                        f"{self.settings.live_vendor_symbol} freshness {freshness:.1f} and drift score "
+                summary=(
+                    f"{snapshot.symbol} freshness {freshness:.1f} and drift score "
                         f"{drift_anomaly_score:.1f} pushed trust to {weighted_trust:.1f}."
                     ),
-                    impacted_features=["Order Imbalance Regime"],
+                    impacted_features=[feature.name],
                 )
             else:
-                self.incident_repository.resolve_live_incident(LIVE_INCIDENT_ID)
+                self.incident_repository.resolve_live_incident(get_live_incident_id(feed_id))
 
             self.session.commit()
             print(
                 "live_refresh_completed",
                 {
                     "feed_id": feed_id,
-                    "symbol": snapshot.symbol,
+                    "symbol": source_symbol,
+                    "source_name": source_name,
                     "trust": weighted_trust,
                     "latency_seconds": snapshot.latency_seconds,
                     "schema_version": snapshot.schema_version,
@@ -278,22 +315,22 @@ class LiveFeedRefreshService:
                 "live_refresh_failed",
                 {
                     "feed_id": feed_id,
-                    "symbol": self.settings.live_vendor_symbol,
+                    "source_name": source_name,
                     "data_mode": self.settings.data_mode,
                     "error": str(exc),
                     "fallback_snapshot": latest_snapshot is not None,
                 },
             )
             self.incident_repository.upsert_live_incident(
-                LIVE_INCIDENT_ID,
+                get_live_incident_id(feed_id),
                 feed_id=feed_id,
-                title="Live Binance feed refresh failed",
+                title=f"Live {source_name} feed refresh failed",
                 severity="critical",
                 status="triage",
                 summary=(
-                    f"Unable to refresh {self.settings.live_vendor_symbol} from Binance: {str(exc)[:180]}"
+                    f"Unable to refresh {source_symbol} from {source_name}: {str(exc)[:180]}"
                 ),
-                impacted_features=["Order Imbalance Regime"],
+                impacted_features=[impacted_feature_name],
             )
             self.feed_repository.update_status(feed_id, "warning")
             self.session.commit()

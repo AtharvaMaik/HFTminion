@@ -12,10 +12,10 @@ class IngestionService:
 
     def create_ingestion_run(self) -> dict[str, str]:
         if self.live_refresh.is_live_mode_enabled():
-            run = self.live_refresh.refresh_live_feed()
+            run = self.live_refresh.refresh_live_feed(self.live_refresh.settings.live_vendor_feed_id)
             return {
                 "status": run.status,
-                "message": "Live vendor ingestion completed",
+                "message": "Live connector ingestion completed",
                 "run_id": run.id,
             }
 
