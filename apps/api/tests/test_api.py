@@ -17,6 +17,7 @@ from app.models import ReplayPointModel
 from app.schemas import FeedDefinition
 from app.schemas import ReliabilitySnapshot
 from app.services.live_connectors import LiveConnectorSnapshot
+from app.services.live_registry import LIVE_FEATURE_IDS
 from app.services.live_registry import LIVE_FEED_IDS
 from app.services.live_vendor import BinanceSnapshot
 
@@ -506,12 +507,14 @@ def test_live_mode_lists_only_live_backed_feeds(live_client: TestClient):
     response = live_client.get("/api/v1/feeds")
     assert response.status_code == 200
     body = response.json()
-    assert any(feed["id"] == "feed-demo-legacy" for feed in body)
-    assert sorted(feed["id"] for feed in body) == sorted([
-        "feed-binance-agg",
-        "feed-public-news",
-        "feed-economic-calendar",
-    ])
+    assert sorted(feed["id"] for feed in body) == sorted(LIVE_FEED_IDS)
+
+
+def test_live_mode_lists_only_live_backed_features(live_client: TestClient):
+    response = live_client.get("/api/v1/features")
+    assert response.status_code == 200
+    body = response.json()
+    assert sorted(feature["id"] for feature in body) == sorted(LIVE_FEATURE_IDS)
 
 
 def test_live_mode_hides_seeded_demo_incidents(live_client: TestClient):
@@ -519,8 +522,72 @@ def test_live_mode_hides_seeded_demo_incidents(live_client: TestClient):
     assert response.status_code == 200
     body = response.json()
     assert len(body) > 0
-    assert any(item["id"] == "inc-demo-legacy" for item in body)
     assert all(item["feed_id"] != "feed-demo-legacy" for item in body)
+    assert all(item["feed_id"] in LIVE_FEED_IDS for item in body)
+
+
+def test_live_mode_incidents_include_newly_opened_live_incidents_on_first_response(
+    live_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    computed_at = datetime.utcnow().replace(microsecond=0)
+
+    def _critical_binance_snapshot(self, freshness_sla_seconds: int) -> BinanceSnapshot:
+        return BinanceSnapshot(
+            symbol=self.default_symbol,
+            source_name="Binance",
+            source_lineage_prefix=[f"binance:{self.default_symbol}", "api/v3/depth", "api/v3/ticker/24hr"],
+            primary_feature_id="feat-order-imbalance",
+            avg_price=100000.0,
+            last_price=100120.0,
+            price_change_pct=18.0,
+            latency_seconds=600,
+            schema_version="binance-spot-v3",
+            bid_qty=1.0,
+            ask_qty=20.0,
+            trade_count=2,
+            quote_volume=1000.0,
+            computed_at=computed_at,
+            replay_points=[
+                ReplayPointModel(
+                    feature_id="feat-order-imbalance",
+                    timestamp=computed_at,
+                    expected_value=100000.0,
+                    actual_value=100120.0,
+                    trust_score=0.0,
+                    blocked=True,
+                ),
+            ],
+        )
+
+    monkeypatch.setattr(
+        "app.services.live_vendor.BinanceSpotConnector.fetch_snapshot",
+        _critical_binance_snapshot,
+    )
+
+    response = live_client.get("/api/v1/incidents")
+    assert response.status_code == 200
+    body = response.json()
+
+    assert any(item["id"] == "inc-live-feed-binance-agg" for item in body)
+
+
+def test_live_mode_overview_counts_only_live_backed_records(live_client: TestClient):
+    response = live_client.get("/api/v1/metrics/overview")
+    assert response.status_code == 200
+    body = response.json()
+
+    metrics_by_label = {metric["label"]: metric for metric in body["metrics"]}
+
+    assert metrics_by_label["Tracked feeds"]["value"] == "3"
+    assert metrics_by_label["Active incidents"]["value"] == "0"
+    assert metrics_by_label["Blocked features"]["value"] == "0"
+    assert body["feeds_by_status"] == {
+        "healthy": 3,
+        "warning": 0,
+        "critical": 0,
+    }
+    assert all(item["feed_id"] in LIVE_FEED_IDS for item in body["incidents"])
 
 
 def test_live_registry_declares_all_live_feed_ids():

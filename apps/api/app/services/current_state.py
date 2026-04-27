@@ -11,6 +11,7 @@ from ..repositories import (
     ReplayRepository,
 )
 from .live_vendor import LiveFeedRefreshService
+from .live_registry import LIVE_FEED_IDS, LIVE_FEATURE_IDS
 from ..schemas import (
     FeatureDefinition,
     FeatureSnapshot,
@@ -75,10 +76,23 @@ class CurrentStateService:
         self.replay_repository = ReplayRepository(session)
         self.live_refresh = LiveFeedRefreshService(session)
 
+    def _is_live_mode_enabled(self) -> bool:
+        return self.live_refresh.is_live_mode_enabled()
+
+    def _live_feed_id_set(self) -> set[str]:
+        return set(LIVE_FEED_IDS)
+
+    def _live_feature_id_set(self) -> set[str]:
+        return set(LIVE_FEATURE_IDS)
+
     def list_feeds(self) -> list[FeedDefinition]:
-        if self.live_refresh.is_live_mode_enabled():
+        if self._is_live_mode_enabled():
             self.live_refresh.refresh_registered_live_feeds()
-        return [_serialize_feed(feed) for feed in self.feed_repository.list_feeds()]
+        feeds = self.feed_repository.list_feeds()
+        if self._is_live_mode_enabled():
+            live_feed_ids = self._live_feed_id_set()
+            feeds = [feed for feed in feeds if feed.id in live_feed_ids]
+        return [_serialize_feed(feed) for feed in feeds]
 
     def get_feed_health(self, feed_id: str) -> FeedHealth:
         self.live_refresh.ensure_feed_is_current(feed_id)
@@ -98,6 +112,10 @@ class CurrentStateService:
         )
 
     def list_features(self) -> list[FeatureDefinition]:
+        features = self.feature_repository.list_features()
+        if self._is_live_mode_enabled():
+            live_feature_ids = self._live_feature_id_set()
+            features = [feature for feature in features if feature.id in live_feature_ids]
         return [
             FeatureDefinition(
                 id=feature.id,
@@ -106,7 +124,7 @@ class CurrentStateService:
                 description=feature.description,
                 owner=feature.owner,
             )
-            for feature in self.feature_repository.list_features()
+            for feature in features
         ]
 
     def get_feature_snapshot(self, feature_id: str) -> FeatureSnapshot:
@@ -123,15 +141,36 @@ class CurrentStateService:
         )
 
     def list_incidents(self) -> list[IncidentRecord]:
-        if self.live_refresh.is_live_mode_enabled():
+        if self._is_live_mode_enabled():
             self.live_refresh.refresh_registered_live_feeds()
-        return [_serialize_incident(incident) for incident in self.incident_repository.list_incidents()]
+        incidents = self.incident_repository.list_incidents()
+        if self._is_live_mode_enabled():
+            live_feed_ids = self._live_feed_id_set()
+            incidents = [incident for incident in incidents if incident.feed_id in live_feed_ids]
+        return [_serialize_incident(incident) for incident in incidents]
 
     def metrics_overview(self) -> OverviewResponse:
-        if self.live_refresh.is_live_mode_enabled():
+        if self._is_live_mode_enabled():
             self.live_refresh.refresh_registered_live_feeds()
-        incidents = [_serialize_incident(incident) for incident in self.metrics_repository.list_incidents()]
+        live_mode = self._is_live_mode_enabled()
+        incidents = self.metrics_repository.list_incidents()
         snapshots = self.metrics_repository.list_latest_snapshots()
+        tracked_feeds_value = "18"
+        blocked_features_count = self.metrics_repository.count_blocked_features()
+
+        if live_mode:
+            live_feed_ids = self._live_feed_id_set()
+            live_feature_ids = self._live_feature_id_set()
+            incidents = [incident for incident in incidents if incident.feed_id in live_feed_ids]
+            snapshots = [snapshot for snapshot in snapshots if snapshot.feed_id in live_feed_ids]
+            tracked_feeds_value = str(len(snapshots))
+            blocked_features_count = sum(
+                1
+                for feature_id in live_feature_ids
+                if self.feature_repository.get_latest_snapshot(feature_id).blocked
+            )
+
+        serialized_incidents = [_serialize_incident(incident) for incident in incidents]
         average_trust = round(sum(snapshot.weighted_trust_score for snapshot in snapshots) / max(1, len(snapshots)), 1)
         now = datetime.utcnow()
         trend = [
@@ -141,17 +180,17 @@ class CurrentStateService:
 
         return OverviewResponse(
             metrics=[
-                OverviewMetric(label="Tracked feeds", value="18", delta="+2 week/week", tone="cyan"),
+                OverviewMetric(label="Tracked feeds", value=tracked_feeds_value, delta="+2 week/week", tone="cyan"),
                 OverviewMetric(label="Healthy trust", value=f"{average_trust:.1f}%", delta="+4.2 pts", tone="emerald"),
                 OverviewMetric(
                     label="Active incidents",
-                    value=str(len([incident for incident in incidents if incident.status != "resolved"])),
+                    value=str(len([incident for incident in serialized_incidents if incident.status != "resolved"])),
                     delta="-1 since open",
                     tone="amber",
                 ),
                 OverviewMetric(
                     label="Blocked features",
-                    value=str(self.metrics_repository.count_blocked_features()),
+                    value=str(blocked_features_count),
                     delta="news_event_feed",
                     tone="red",
                 ),
@@ -162,7 +201,7 @@ class CurrentStateService:
                 "critical": sum(1 for snapshot in snapshots if snapshot.status == "critical"),
             },
             trust_timeseries=trend,
-            incidents=incidents,
+            incidents=serialized_incidents,
         )
 
     def replay(self, feature_id: str) -> ReplayResponse:
