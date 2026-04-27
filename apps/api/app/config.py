@@ -16,6 +16,8 @@ class Settings:
 
 
 def get_settings() -> Settings:
+    from .services.live_registry import LIVE_FEED_IDS
+
     default_database_url = "sqlite:////tmp/altdata.db" if os.getenv("VERCEL") else "sqlite:///./altdata.db"
     return Settings(
         data_mode=os.getenv("DATA_MODE", "seeded"),
@@ -23,7 +25,7 @@ def get_settings() -> Settings:
             "DATABASE_URL",
             default_database_url,
         ),
-        live_vendor_feed_id=os.getenv("LIVE_VENDOR_FEED_ID", "feed-binance-agg"),
+        live_vendor_feed_id=os.getenv("LIVE_VENDOR_FEED_ID", LIVE_FEED_IDS[0]),
         live_vendor_symbol=os.getenv("LIVE_VENDOR_SYMBOL", "BTCUSDT"),
         live_vendor_base_url=os.getenv("LIVE_VENDOR_BASE_URL", "https://api.binance.us"),
         live_refresh_window_seconds=int(os.getenv("LIVE_REFRESH_WINDOW_SECONDS", "30")),

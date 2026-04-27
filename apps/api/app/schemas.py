@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 ReliabilityStatus = Literal["healthy", "warning", "critical"]
 IncidentStatus = Literal["triage", "investigating", "resolved"]
-FeedClass = Literal["traffic_proxy", "footfall_stream", "news_event_feed"]
+FeedClass = Literal["traffic_proxy", "macro_calendar_feed", "news_event_feed"]
 
 
 class FeedDefinition(BaseModel):

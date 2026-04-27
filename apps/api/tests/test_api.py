@@ -13,7 +13,9 @@ from app import data as app_data
 from app import seed as app_seed
 from app.main import app
 from app.models import ReplayPointModel
-from app.schemas import FeedDefinition, ReliabilitySnapshot
+from app.schemas import FeedDefinition
+from app.schemas import ReliabilitySnapshot
+from app.services.live_registry import LIVE_FEED_IDS
 from app.services.live_vendor import BinanceSnapshot
 
 
@@ -37,28 +39,29 @@ def live_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     live_timestamp = datetime.utcnow().replace(microsecond=0)
     live_feeds = app_data.FEEDS + [
         FeedDefinition(
-            id="feed-public-news",
-            name="PUBLIC_NEWS_ALPHA",
-            vendor="EventPulse",
-            region="eu-west-1",
+            id="feed-demo-legacy",
+            name="DEMO_LEGACY_PLACEHOLDER",
+            vendor="Demo Placeholder Source",
+            region="us-west-2",
             feed_class="news_event_feed",
-            freshness_sla_seconds=45,
-            coverage_target_pct=98.7,
-            status="healthy",
-        ),
-        FeedDefinition(
-            id="feed-economic-calendar",
-            name="ZZ_ECONOMIC_CALENDAR_ALPHA",
-            vendor="EventPulse",
-            region="us-east-1",
-            feed_class="news_event_feed",
-            freshness_sla_seconds=60,
-            coverage_target_pct=97.4,
-            status="healthy",
+            freshness_sla_seconds=120,
+            coverage_target_pct=88.0,
+            status="warning",
         ),
     ]
     live_snapshots = {
         **app_data.SNAPSHOTS,
+        "feed-demo-legacy": ReliabilitySnapshot(
+            timestamp=live_timestamp,
+            freshness=61.0,
+            completeness=72.0,
+            schema_stability=70.0,
+            entity_coverage=68.0,
+            revision_rate=64.0,
+            drift_anomaly_score=66.0,
+            weighted_trust_score=68.5,
+            status="warning",
+        ),
         "feed-public-news": ReliabilitySnapshot(
             timestamp=live_timestamp,
             freshness=94.0,
@@ -126,6 +129,23 @@ def live_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
         _fake_fetch_snapshot,
     )
 
+    live_incidents = [
+        *app_data.INCIDENTS,
+        app_data.IncidentRecord(
+            id="inc-demo-legacy",
+            title="Legacy demo feed still present",
+            feed_id="feed-demo-legacy",
+            severity="warning",
+            status="triage",
+            started_at=live_timestamp,
+            acknowledged=False,
+            summary="This demo incident should be filtered out in live mode later.",
+            impacted_features=["Demo Legacy Placeholder"],
+        ),
+    ]
+    monkeypatch.setattr(app_data, "INCIDENTS", live_incidents)
+    monkeypatch.setattr(app_seed, "INCIDENTS", live_incidents)
+
     with TestClient(app) as test_client:
         yield test_client
 
@@ -153,7 +173,7 @@ def test_metrics_overview_vercel_service_path_alias_returns_same_payload(client:
 
 def test_incident_acknowledgement_persists_and_updates_workflow(client: TestClient):
     acknowledge_response = client.post(
-        "/api/v1/incidents/inc-1043/acknowledge",
+        "/api/v1/incidents/inc-live-feed-public-news/acknowledge",
         json={"acknowledged": True},
     )
 
@@ -167,19 +187,19 @@ def test_incident_acknowledgement_persists_and_updates_workflow(client: TestClie
     incident = next(
         item
         for item in incidents_response.json()
-        if item["id"] == "inc-1043"
+        if item["id"] == "inc-live-feed-public-news"
     )
     assert incident["acknowledged"] is True
     assert incident["status"] == "investigating"
 
 
 def test_replay_endpoint_returns_persisted_history(client: TestClient):
-    response = client.get("/api/v1/replay/feat-news-sentiment")
+    response = client.get("/api/v1/replay/feat-headline-velocity")
 
     assert response.status_code == 200
     body = response.json()
 
-    assert body["feature_id"] == "feat-news-sentiment"
+    assert body["feature_id"] == "feat-headline-velocity"
     assert len(body["points"]) == 10
     assert body["points"][-1]["blocked"] is False
 
@@ -225,6 +245,7 @@ def test_live_mode_lists_only_live_backed_feeds(live_client: TestClient):
     response = live_client.get("/api/v1/feeds")
     assert response.status_code == 200
     body = response.json()
+    assert any(feed["id"] == "feed-demo-legacy" for feed in body)
     assert sorted(feed["id"] for feed in body) == sorted([
         "feed-binance-agg",
         "feed-public-news",
@@ -236,11 +257,14 @@ def test_live_mode_hides_seeded_demo_incidents(live_client: TestClient):
     response = live_client.get("/api/v1/incidents")
     assert response.status_code == 200
     body = response.json()
-    expected_live_feed_ids = {
+    assert len(body) > 0
+    assert any(item["id"] == "inc-demo-legacy" for item in body)
+    assert all(item["feed_id"] != "feed-demo-legacy" for item in body)
+
+
+def test_live_registry_declares_all_live_feed_ids():
+    assert LIVE_FEED_IDS == [
         "feed-binance-agg",
         "feed-public-news",
         "feed-economic-calendar",
-    }
-    assert len(body) > 0
-    assert all(item["id"] not in {"inc-1042", "inc-1043"} for item in body)
-    assert all(item["feed_id"] in expected_live_feed_ids for item in body)
+    ]

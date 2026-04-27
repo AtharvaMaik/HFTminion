@@ -31,19 +31,19 @@ FEEDS = [
         status="healthy",
     ),
     FeedDefinition(
-        id="feed-footfall-east",
-        name="FOOTFALL_EAST_CLUSTER",
-        vendor="StreetLayer",
+        id="feed-economic-calendar",
+        name="ZZ_ECONOMIC_CALENDAR_ALPHA",
+        vendor="Macro Calendar Source",
         region="us-east-1",
-        feed_class="footfall_stream",
+        feed_class="macro_calendar_feed",
         freshness_sla_seconds=300,
         coverage_target_pct=96.0,
         status="warning",
     ),
     FeedDefinition(
-        id="feed-global-news",
-        name="GLOBAL_NEWS_ALPHA",
-        vendor="EventPulse",
+        id="feed-public-news",
+        name="PUBLIC_NEWS_ALPHA",
+        vendor="Public News Source",
         region="eu-west-1",
         feed_class="news_event_feed",
         freshness_sla_seconds=45,
@@ -62,16 +62,16 @@ FEATURES = [
         owner="research-market-micro",
     ),
     FeatureDefinition(
-        id="feat-store-intent",
-        name="Store Visit Intent Delta",
-        feed_id="feed-footfall-east",
-        description="Regional visit intent versus baseline for discretionary retail names.",
+        id="feat-economic-event-pressure",
+        name="Economic Event Pressure",
+        feed_id="feed-economic-calendar",
+        description="Macro calendar event pressure based on release timing, surprise magnitude, and market sensitivity.",
         owner="research-consumer",
     ),
     FeatureDefinition(
-        id="feat-news-sentiment",
-        name="Macro News Shock Sentiment",
-        feed_id="feed-global-news",
+        id="feat-headline-velocity",
+        name="Headline Velocity",
+        feed_id="feed-public-news",
         description="Low-latency event polarity for macro and geopolitical triggers.",
         owner="research-macro",
     ),
@@ -111,33 +111,33 @@ def _snapshot(
 
 SNAPSHOTS = {
     "feed-binance-agg": _snapshot(96, 98, 94, 95, 89, 91),
-    "feed-footfall-east": _snapshot(72, 81, 78, 76, 69, 71),
-    "feed-global-news": _snapshot(39, 62, 55, 51, 44, 42),
+    "feed-economic-calendar": _snapshot(72, 81, 78, 76, 69, 71),
+    "feed-public-news": _snapshot(39, 62, 55, 51, 44, 42),
 }
 
 
 INCIDENTS = [
     IncidentRecord(
-        id="inc-1042",
+        id="inc-live-feed-economic-calendar",
         title="Revision burst exceeded daily baseline",
-        feed_id="feed-footfall-east",
+        feed_id="feed-economic-calendar",
         severity="warning",
         status="investigating",
         started_at=datetime.utcnow().replace(microsecond=0) - timedelta(hours=3, minutes=14),
         acknowledged=True,
         summary="Vendor backfill revisions spiked 3.6x above the expected rate.",
-        impacted_features=["Store Visit Intent Delta"],
+        impacted_features=["Economic Event Pressure"],
     ),
     IncidentRecord(
-        id="inc-1043",
+        id="inc-live-feed-public-news",
         title="Macro event feed staleness breach",
-        feed_id="feed-global-news",
+        feed_id="feed-public-news",
         severity="critical",
         status="triage",
         started_at=datetime.utcnow().replace(microsecond=0) - timedelta(minutes=47),
         acknowledged=False,
         summary="Latency breached the 45 second SLA for 7 consecutive windows.",
-        impacted_features=["Macro News Shock Sentiment"],
+        impacted_features=["Headline Velocity"],
     ),
 ]
 
@@ -166,8 +166,8 @@ def get_feature_snapshot(feature_id: str) -> FeatureSnapshot:
     feature = next(feature for feature in FEATURES if feature.id == feature_id)
     sample_values = {
         "feat-order-imbalance": 1.24,
-        "feat-store-intent": -0.42,
-        "feat-news-sentiment": -1.88,
+        "feat-economic-event-pressure": -0.42,
+        "feat-headline-velocity": -1.88,
     }
     return FeatureSnapshot(
         feature_id=feature.id,

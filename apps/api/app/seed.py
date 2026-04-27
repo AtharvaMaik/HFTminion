@@ -79,8 +79,8 @@ def seed_database(session: Session) -> None:
 
     feature_values = {
         "feat-order-imbalance": 1.24,
-        "feat-store-intent": -0.42,
-        "feat-news-sentiment": -1.88,
+        "feat-economic-event-pressure": -0.42,
+        "feat-headline-velocity": -1.88,
     }
     for feature in FEATURES:
         feature_snapshot = FeatureSnapshotModel(
@@ -89,7 +89,7 @@ def seed_database(session: Session) -> None:
             source_timestamp=datetime.utcnow().replace(microsecond=0),
             latest_value=feature_values[feature.id],
             trust_score=SNAPSHOTS[feature.feed_id].weighted_trust_score,
-            blocked=feature.id == "feat-news-sentiment",
+            blocked=feature.id == "feat-headline-velocity",
             lineage=json.dumps([feature.feed_id, "normalizer.v2", feature.id]),
         )
         session.add(feature_snapshot)
