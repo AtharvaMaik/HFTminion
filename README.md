@@ -143,6 +143,34 @@ When `DATA_MODE=database`, startup will:
 - seed the current demo records into the database once
 - serve feeds, incidents, replay, and overview data from durable storage
 
+### Run the API in Live Vendor Mode
+
+The first live vendor-backed slice now supports `feed-binance-agg` using Binance public spot market data for `BTCUSDT`.
+
+```powershell
+$env:DATA_MODE="live"
+$env:LIVE_VENDOR_SYMBOL="BTCUSDT"
+python -m uvicorn apps.api.app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+In `DATA_MODE=live`:
+- `feed-binance-agg` refreshes from the live vendor path
+- `feat-order-imbalance` is derived from live order book depth
+- the live snapshot is persisted into the existing feed/feature/replay tables
+- the other feeds continue using the seeded database path
+
+Optional settings:
+
+```text
+LIVE_VENDOR_FEED_ID=feed-binance-agg
+LIVE_VENDOR_SYMBOL=BTCUSDT
+LIVE_VENDOR_BASE_URL=https://api.binance.us
+LIVE_REFRESH_WINDOW_SECONDS=30
+LIVE_VENDOR_TIMEOUT_SECONDS=5
+```
+
+The default hosted configuration uses `https://api.binance.us` because Vercel's US runtime can receive HTTP 451 from `api.binance.com`.
+
 ### Run Local Infra
 
 ```powershell
@@ -240,6 +268,17 @@ If you want the frontend to target an external API instead of the co-hosted serv
 ```text
 NEXT_PUBLIC_API_BASE_URL=https://your-api-host.example.com
 ```
+
+For a hosted live demo on Vercel, set at least:
+
+```text
+DATA_MODE=live
+LIVE_VENDOR_SYMBOL=BTCUSDT
+```
+
+If you override the vendor base URL, prefer a region-accessible endpoint for your deployment. The default app config uses `https://api.binance.us` so the shared Vercel deployment can refresh successfully from the US.
+
+If `DATABASE_URL` is not set on Vercel, the API falls back to `/tmp/altdata.db`, which is good enough for a shareable live demo but not durable across cold starts.
 
 ## How To Integrate This Into a Real Pipeline
 
@@ -399,9 +438,10 @@ The expected production targets are:
 This repository is currently an MVP scaffold and operator demo baseline.
 
 Important limitations:
-- API data is seeded, not persisted
+- only one feed is live-vendor backed today (`feed-binance-agg`)
+- most feeds still use seeded demo data
 - Docker infra can require local port hygiene
-- real ingestion is not yet wired
+- live ingestion is polling-based, not a full production pipeline
 - incident workflow is not durable
 - replay is illustrative, not reconstructed from archived payloads
 

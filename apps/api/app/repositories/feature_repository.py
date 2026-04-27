@@ -20,7 +20,12 @@ class FeatureRepository:
         statement = (
             select(FeatureSnapshotModel)
             .where(FeatureSnapshotModel.feature_id == feature_id)
-            .order_by(desc(FeatureSnapshotModel.source_timestamp))
+            .order_by(desc(FeatureSnapshotModel.source_timestamp), desc(FeatureSnapshotModel.id))
             .limit(1)
         )
         return self.session.scalars(statement).one()
+
+    def create_snapshot(self, snapshot: FeatureSnapshotModel) -> FeatureSnapshotModel:
+        self.session.add(snapshot)
+        self.session.flush()
+        return snapshot

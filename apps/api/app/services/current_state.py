@@ -10,6 +10,7 @@ from ..repositories import (
     MetricsRepository,
     ReplayRepository,
 )
+from .live_vendor import LIVE_FEATURE_ID, LiveFeedRefreshService
 from ..schemas import (
     FeatureDefinition,
     FeatureSnapshot,
@@ -72,11 +73,14 @@ class CurrentStateService:
         self.incident_repository = IncidentRepository(session)
         self.metrics_repository = MetricsRepository(session)
         self.replay_repository = ReplayRepository(session)
+        self.live_refresh = LiveFeedRefreshService(session)
 
     def list_feeds(self) -> list[FeedDefinition]:
+        self.live_refresh.ensure_feed_is_current(self.live_refresh.settings.live_vendor_feed_id)
         return [_serialize_feed(feed) for feed in self.feed_repository.list_feeds()]
 
     def get_feed_health(self, feed_id: str) -> FeedHealth:
+        self.live_refresh.ensure_feed_is_current(feed_id)
         feed = self.feed_repository.get_feed(feed_id)
         snapshot = self.feed_repository.get_latest_snapshot(feed_id)
         incidents = [
@@ -105,6 +109,8 @@ class CurrentStateService:
         ]
 
     def get_feature_snapshot(self, feature_id: str) -> FeatureSnapshot:
+        if feature_id == LIVE_FEATURE_ID:
+            self.live_refresh.ensure_feed_is_current(self.live_refresh.settings.live_vendor_feed_id)
         feature = self.feature_repository.get_feature(feature_id)
         snapshot = self.feature_repository.get_latest_snapshot(feature_id)
         return FeatureSnapshot(
@@ -116,9 +122,11 @@ class CurrentStateService:
         )
 
     def list_incidents(self) -> list[IncidentRecord]:
+        self.live_refresh.ensure_feed_is_current(self.live_refresh.settings.live_vendor_feed_id)
         return [_serialize_incident(incident) for incident in self.incident_repository.list_incidents()]
 
     def metrics_overview(self) -> OverviewResponse:
+        self.live_refresh.ensure_feed_is_current(self.live_refresh.settings.live_vendor_feed_id)
         incidents = [_serialize_incident(incident) for incident in self.metrics_repository.list_incidents()]
         snapshots = self.metrics_repository.list_latest_snapshots()
         average_trust = round(sum(snapshot.weighted_trust_score for snapshot in snapshots) / max(1, len(snapshots)), 1)
@@ -155,6 +163,8 @@ class CurrentStateService:
         )
 
     def replay(self, feature_id: str) -> ReplayResponse:
+        if feature_id == LIVE_FEATURE_ID:
+            self.live_refresh.ensure_feed_is_current(self.live_refresh.settings.live_vendor_feed_id)
         feature = self.feature_repository.get_feature(feature_id)
         points = self.replay_repository.list_points(feature_id)
         return ReplayResponse(

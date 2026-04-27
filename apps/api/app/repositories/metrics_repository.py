@@ -20,7 +20,7 @@ class MetricsRepository:
             statement = (
                 select(FeedSnapshotModel)
                 .where(FeedSnapshotModel.feed_id == feed.id)
-                .order_by(desc(FeedSnapshotModel.computed_at))
+                .order_by(desc(FeedSnapshotModel.computed_at), desc(FeedSnapshotModel.id))
                 .limit(1)
             )
             snapshot = self.session.scalars(statement).first()

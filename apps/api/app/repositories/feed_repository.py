@@ -16,11 +16,24 @@ class FeedRepository:
     def get_feed(self, feed_id: str) -> FeedModel:
         return self.session.get(FeedModel, feed_id)
 
-    def get_latest_snapshot(self, feed_id: str) -> FeedSnapshotModel:
+    def get_latest_snapshot_or_none(self, feed_id: str) -> FeedSnapshotModel | None:
         statement = (
             select(FeedSnapshotModel)
             .where(FeedSnapshotModel.feed_id == feed_id)
-            .order_by(desc(FeedSnapshotModel.computed_at))
+            .order_by(desc(FeedSnapshotModel.computed_at), desc(FeedSnapshotModel.id))
             .limit(1)
         )
-        return self.session.scalars(statement).one()
+        return self.session.scalars(statement).first()
+
+    def get_latest_snapshot(self, feed_id: str) -> FeedSnapshotModel:
+        return self.get_latest_snapshot_or_none(feed_id)
+
+    def create_snapshot(self, snapshot: FeedSnapshotModel) -> FeedSnapshotModel:
+        self.session.add(snapshot)
+        self.session.flush()
+        return snapshot
+
+    def update_status(self, feed_id: str, status: str) -> None:
+        feed = self.get_feed(feed_id)
+        feed.status = status
+        self.session.add(feed)

@@ -25,7 +25,16 @@ from .services import CurrentStateService, IngestionService, IncidentService
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     settings = get_settings()
-    if settings.data_mode == "database":
+    print(
+        "api_startup",
+        {
+            "data_mode": settings.data_mode,
+            "database_url": settings.database_url,
+            "live_vendor_feed_id": settings.live_vendor_feed_id,
+            "live_vendor_symbol": settings.live_vendor_symbol,
+        },
+    )
+    if settings.data_mode in {"database", "live"}:
         engine = get_engine()
         initialize_database(engine)
         with get_session_factory()() as session:
@@ -36,8 +45,8 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="AltData Reliability OS API", version="0.1.0", lifespan=lifespan)
 
 
-def _is_database_mode() -> bool:
-    return get_settings().data_mode == "database"
+def _uses_persistence_mode() -> bool:
+    return get_settings().data_mode in {"database", "live"}
 
 
 @app.get("/health")
@@ -48,7 +57,7 @@ def healthcheck() -> dict[str, str]:
 @app.get("/v1/feeds")
 @app.get("/api/v1/feeds")
 def get_feeds(session: Session = Depends(get_db_session)):
-    if _is_database_mode():
+    if _uses_persistence_mode():
         return CurrentStateService(session).list_feeds()
     return list_feeds()
 
@@ -56,7 +65,7 @@ def get_feeds(session: Session = Depends(get_db_session)):
 @app.get("/v1/feeds/{feed_id}/health")
 @app.get("/api/v1/feeds/{feed_id}/health")
 def get_feed_detail(feed_id: str, session: Session = Depends(get_db_session)):
-    if _is_database_mode():
+    if _uses_persistence_mode():
         return CurrentStateService(session).get_feed_health(feed_id)
     return get_feed_health(feed_id)
 
@@ -64,7 +73,7 @@ def get_feed_detail(feed_id: str, session: Session = Depends(get_db_session)):
 @app.post("/v1/ingestion-runs")
 @app.post("/api/v1/ingestion-runs")
 def create_ingestion_run(session: Session = Depends(get_db_session)) -> dict[str, str]:
-    if _is_database_mode():
+    if _uses_persistence_mode():
         return IngestionService(session).create_ingestion_run()
     return {"status": "queued", "message": "Synthetic ingestion scheduled"}
 
@@ -72,7 +81,7 @@ def create_ingestion_run(session: Session = Depends(get_db_session)) -> dict[str
 @app.get("/v1/features")
 @app.get("/api/v1/features")
 def get_features(session: Session = Depends(get_db_session)):
-    if _is_database_mode():
+    if _uses_persistence_mode():
         return CurrentStateService(session).list_features()
     return list_features()
 
@@ -80,7 +89,7 @@ def get_features(session: Session = Depends(get_db_session)):
 @app.get("/v1/features/{feature_id}/reliability")
 @app.get("/api/v1/features/{feature_id}/reliability")
 def get_feature_reliability(feature_id: str, session: Session = Depends(get_db_session)):
-    if _is_database_mode():
+    if _uses_persistence_mode():
         return CurrentStateService(session).get_feature_snapshot(feature_id)
     return get_feature_snapshot(feature_id)
 
@@ -88,7 +97,7 @@ def get_feature_reliability(feature_id: str, session: Session = Depends(get_db_s
 @app.get("/v1/incidents")
 @app.get("/api/v1/incidents")
 def get_incidents(session: Session = Depends(get_db_session)):
-    if _is_database_mode():
+    if _uses_persistence_mode():
         return CurrentStateService(session).list_incidents()
     return list_incidents()
 
@@ -100,7 +109,7 @@ def post_acknowledge_incident(
     _: AcknowledgeIncidentRequest,
     session: Session = Depends(get_db_session),
 ):
-    if _is_database_mode():
+    if _uses_persistence_mode():
         return IncidentService(session).acknowledge_incident(incident_id)
     return acknowledge_incident(incident_id)
 
@@ -108,7 +117,7 @@ def post_acknowledge_incident(
 @app.get("/v1/metrics/overview")
 @app.get("/api/v1/metrics/overview")
 def get_metrics_overview(session: Session = Depends(get_db_session)):
-    if _is_database_mode():
+    if _uses_persistence_mode():
         return CurrentStateService(session).metrics_overview()
     return metrics_overview()
 
@@ -116,7 +125,7 @@ def get_metrics_overview(session: Session = Depends(get_db_session)):
 @app.get("/v1/replay/{feature_id}")
 @app.get("/api/v1/replay/{feature_id}")
 def get_replay(feature_id: str, session: Session = Depends(get_db_session)):
-    if _is_database_mode():
+    if _uses_persistence_mode():
         return CurrentStateService(session).replay(feature_id)
     return replay(feature_id)
 
