@@ -15,6 +15,6 @@ def get_settings() -> Settings:
         data_mode=os.getenv("DATA_MODE", "seeded"),
         database_url=os.getenv(
             "DATABASE_URL",
-            "postgresql://altdata:altdata@localhost:15432/altdata",
+            "sqlite:///./altdata.db",
         ),
     )

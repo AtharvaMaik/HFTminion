@@ -9,13 +9,21 @@ import type {
 
 import { fallbackOverview } from "./mock-data";
 
-function getApiBaseUrl() {
+async function getApiBaseUrl() {
   if (process.env.NEXT_PUBLIC_API_BASE_URL) {
     return process.env.NEXT_PUBLIC_API_BASE_URL;
   }
 
   if (typeof window !== "undefined") {
     return "";
+  }
+
+  const { headers } = await import("next/headers");
+  const requestHeaders = await headers();
+  const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host");
+  if (host) {
+    const protocol = requestHeaders.get("x-forwarded-proto") ?? "https";
+    return `${protocol}://${host}`;
   }
 
   if (process.env.VERCEL_URL) {
@@ -26,7 +34,7 @@ function getApiBaseUrl() {
 }
 
 export async function getOverview(): Promise<OverviewResponse> {
-  const apiBaseUrl = getApiBaseUrl();
+  const apiBaseUrl = await getApiBaseUrl();
   try {
     const response = await fetch(`${apiBaseUrl}/api/v1/metrics/overview`, {
       next: { revalidate: 30 },
@@ -41,7 +49,7 @@ export async function getOverview(): Promise<OverviewResponse> {
 }
 
 async function apiGet<T>(path: string, fallback: T): Promise<T> {
-  const apiBaseUrl = getApiBaseUrl();
+  const apiBaseUrl = await getApiBaseUrl();
   try {
     const response = await fetch(`${apiBaseUrl}${path}`, {
       next: { revalidate: 30 },
@@ -68,7 +76,7 @@ export async function getIncidents(): Promise<IncidentRecord[]> {
 }
 
 export async function acknowledgeIncident(incidentId: string): Promise<IncidentRecord | null> {
-  const apiBaseUrl = getApiBaseUrl();
+  const apiBaseUrl = await getApiBaseUrl();
   try {
     const response = await fetch(`${apiBaseUrl}/api/v1/incidents/${incidentId}/acknowledge`, {
       method: "POST",

@@ -32,6 +32,16 @@ def test_metrics_overview_endpoint_returns_seeded_database_payload(client: TestC
     assert body["metrics"][0]["value"] == "18"
 
 
+def test_metrics_overview_vercel_service_path_alias_returns_same_payload(client: TestClient):
+    response = client.get("/v1/metrics/overview")
+
+    assert response.status_code == 200
+    body = response.json()
+
+    assert len(body["metrics"]) == 4
+    assert body["feeds_by_status"]["critical"] == 1
+
+
 def test_incident_acknowledgement_persists_and_updates_workflow(client: TestClient):
     acknowledge_response = client.post(
         "/api/v1/incidents/inc-1043/acknowledge",

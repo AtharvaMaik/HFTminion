@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from services.ingest.connectors import generate_deliveries
-from services.scorer.scoring import ReliabilityInputs, classify_status, compute_weighted_trust_score
+from .connectors import generate_deliveries
+from .scoring import ReliabilityInputs, classify_status, compute_weighted_trust_score
 
 from .schemas import (
     FeatureDefinition,

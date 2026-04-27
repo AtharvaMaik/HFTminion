@@ -134,7 +134,7 @@ The API can now boot in a persistent database-backed mode instead of relying onl
 
 ```powershell
 $env:DATA_MODE="database"
-$env:DATABASE_URL="postgresql://altdata:altdata@localhost:15432/altdata"
+$env:DATABASE_URL="postgresql+psycopg://altdata:altdata@localhost:15432/altdata"
 python -m uvicorn apps.api.app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
@@ -232,7 +232,7 @@ For local or hosted database-backed API mode, set:
 
 ```text
 DATA_MODE=database
-DATABASE_URL=postgresql://altdata:altdata@localhost:15432/altdata
+DATABASE_URL=postgresql+psycopg://altdata:altdata@localhost:15432/altdata
 ```
 
 If you want the frontend to target an external API instead of the co-hosted service, set:

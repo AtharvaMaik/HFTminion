@@ -45,6 +45,7 @@ def healthcheck() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/v1/feeds")
 @app.get("/api/v1/feeds")
 def get_feeds(session: Session = Depends(get_db_session)):
     if _is_database_mode():
@@ -52,6 +53,7 @@ def get_feeds(session: Session = Depends(get_db_session)):
     return list_feeds()
 
 
+@app.get("/v1/feeds/{feed_id}/health")
 @app.get("/api/v1/feeds/{feed_id}/health")
 def get_feed_detail(feed_id: str, session: Session = Depends(get_db_session)):
     if _is_database_mode():
@@ -59,6 +61,7 @@ def get_feed_detail(feed_id: str, session: Session = Depends(get_db_session)):
     return get_feed_health(feed_id)
 
 
+@app.post("/v1/ingestion-runs")
 @app.post("/api/v1/ingestion-runs")
 def create_ingestion_run(session: Session = Depends(get_db_session)) -> dict[str, str]:
     if _is_database_mode():
@@ -66,6 +69,7 @@ def create_ingestion_run(session: Session = Depends(get_db_session)) -> dict[str
     return {"status": "queued", "message": "Synthetic ingestion scheduled"}
 
 
+@app.get("/v1/features")
 @app.get("/api/v1/features")
 def get_features(session: Session = Depends(get_db_session)):
     if _is_database_mode():
@@ -73,6 +77,7 @@ def get_features(session: Session = Depends(get_db_session)):
     return list_features()
 
 
+@app.get("/v1/features/{feature_id}/reliability")
 @app.get("/api/v1/features/{feature_id}/reliability")
 def get_feature_reliability(feature_id: str, session: Session = Depends(get_db_session)):
     if _is_database_mode():
@@ -80,6 +85,7 @@ def get_feature_reliability(feature_id: str, session: Session = Depends(get_db_s
     return get_feature_snapshot(feature_id)
 
 
+@app.get("/v1/incidents")
 @app.get("/api/v1/incidents")
 def get_incidents(session: Session = Depends(get_db_session)):
     if _is_database_mode():
@@ -87,6 +93,7 @@ def get_incidents(session: Session = Depends(get_db_session)):
     return list_incidents()
 
 
+@app.post("/v1/incidents/{incident_id}/acknowledge", response_model=IncidentRecord)
 @app.post("/api/v1/incidents/{incident_id}/acknowledge", response_model=IncidentRecord)
 def post_acknowledge_incident(
     incident_id: str,
@@ -98,6 +105,7 @@ def post_acknowledge_incident(
     return acknowledge_incident(incident_id)
 
 
+@app.get("/v1/metrics/overview")
 @app.get("/api/v1/metrics/overview")
 def get_metrics_overview(session: Session = Depends(get_db_session)):
     if _is_database_mode():
@@ -105,6 +113,7 @@ def get_metrics_overview(session: Session = Depends(get_db_session)):
     return metrics_overview()
 
 
+@app.get("/v1/replay/{feature_id}")
 @app.get("/api/v1/replay/{feature_id}")
 def get_replay(feature_id: str, session: Session = Depends(get_db_session)):
     if _is_database_mode():

@@ -16,7 +16,7 @@ from .models import (
     IncidentModel,
     ReplayPointModel,
 )
-from services.ingest.connectors import generate_deliveries
+from .connectors import generate_deliveries
 
 
 def initialize_database(engine) -> None:
