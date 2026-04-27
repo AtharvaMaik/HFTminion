@@ -183,6 +183,55 @@ def live_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
         _fake_public_news_snapshot,
     )
 
+    def _fake_economic_calendar_snapshot(self, freshness_sla_seconds: int) -> LiveConnectorSnapshot:
+        computed_at = datetime.utcnow().replace(microsecond=0)
+        return LiveConnectorSnapshot(
+            symbol="fed-press-releases",
+            source_name="Federal Reserve Press Releases",
+            source_lineage_prefix=["source:economic-calendar", "calendar:event-rate"],
+            primary_feature_id="feat-economic-event-pressure",
+            avg_price=12.0,
+            last_price=4.0,
+            price_change_pct=25.0,
+            latency_seconds=20,
+            schema_version="rss-2.0",
+            bid_qty=4.0,
+            ask_qty=2.0,
+            trade_count=18,
+            quote_volume=24.0,
+            freshness_score=93.4,
+            completeness_score=98.0,
+            schema_stability_score=95.0,
+            entity_coverage_score=84.0,
+            revision_rate_score=63.0,
+            drift_anomaly_score=91.0,
+            feature_value=0.625,
+            computed_at=computed_at,
+            replay_points=[
+                ReplayPointModel(
+                    feature_id="feat-economic-event-pressure",
+                    timestamp=computed_at - timedelta(hours=6),
+                    expected_value=0.625,
+                    actual_value=0.5,
+                    trust_score=88.0,
+                    blocked=False,
+                ),
+                ReplayPointModel(
+                    feature_id="feat-economic-event-pressure",
+                    timestamp=computed_at + timedelta(hours=2),
+                    expected_value=0.625,
+                    actual_value=0.75,
+                    trust_score=91.0,
+                    blocked=False,
+                ),
+            ],
+        )
+
+    monkeypatch.setattr(
+        "app.services.live_connectors.FedEconomicCalendarConnector.fetch_snapshot",
+        _fake_economic_calendar_snapshot,
+    )
+
     live_incidents = [
         *app_data.INCIDENTS,
         app_data.IncidentRecord(
@@ -341,6 +390,69 @@ def test_live_news_feed_uses_connector_supplied_reliability_scores(live_client: 
         "rss:item-count",
         "feat-headline-velocity",
     ]
+
+
+def test_live_economic_calendar_feed_uses_connector_supplied_macro_shape(live_client: TestClient):
+    response = live_client.get("/api/v1/feeds/feed-economic-calendar/health")
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["feed"]["id"] == "feed-economic-calendar"
+    assert body["schema_version"] == "rss-2.0"
+    assert body["latest_snapshot"]["freshness"] == 93.4
+    assert body["latest_snapshot"]["completeness"] == 98.0
+    assert body["latest_snapshot"]["schema_stability"] == 95.0
+    assert body["latest_snapshot"]["entity_coverage"] == 84.0
+    assert body["latest_snapshot"]["revision_rate"] == 63.0
+    assert body["latest_snapshot"]["drift_anomaly_score"] == 91.0
+
+    feature_response = live_client.get("/api/v1/features/feat-economic-event-pressure/reliability")
+    assert feature_response.status_code == 200
+    feature_body = feature_response.json()
+    assert feature_body["latest_value"] == 0.625
+    assert feature_body["lineage"] == [
+        "source:economic-calendar",
+        "calendar:event-rate",
+        "feat-economic-event-pressure",
+    ]
+
+
+def test_fed_economic_calendar_connector_parses_real_rss_shape(monkeypatch: pytest.MonkeyPatch):
+    from app.services.live_connectors import FedEconomicCalendarConnector
+
+    now = datetime.utcnow().replace(microsecond=0, second=0, minute=0)
+    sample_feed = "\n".join(
+        [
+            '<?xml version="1.0" encoding="UTF-8"?>',
+            '<rss version="2.0">',
+            "<channel>",
+            "<title>Federal Reserve Press Releases</title>",
+            f"<item><title>Employment Situation</title><pubDate>{(now - timedelta(days=3)).strftime('%a, %d %b %Y %H:%M:%S GMT')}</pubDate></item>",
+            f"<item><title>Consumer Price Index</title><pubDate>{(now - timedelta(days=1)).strftime('%a, %d %b %Y %H:%M:%S GMT')}</pubDate></item>",
+            f"<item><title>Producer Price Index</title><pubDate>{(now + timedelta(hours=12)).strftime('%a, %d %b %Y %H:%M:%S GMT')}</pubDate></item>",
+            f"<item><title>Employment Situation</title><pubDate>{(now + timedelta(days=8)).strftime('%a, %d %b %Y %H:%M:%S GMT')}</pubDate></item>",
+            "</channel>",
+            "</rss>",
+        ]
+    )
+
+    connector = FedEconomicCalendarConnector()
+    monkeypatch.setattr(connector, "_get_feed_xml", lambda: sample_feed)
+
+    snapshot = connector.fetch_snapshot(freshness_sla_seconds=300)
+
+    assert snapshot.schema_version == "rss-2.0"
+    assert snapshot.source_lineage_prefix == [
+        "source:economic-calendar",
+        "calendar:event-rate",
+    ]
+    assert 0.0 <= snapshot.freshness_score <= 100.0
+    assert 0.0 <= snapshot.completeness_score <= 100.0
+    assert snapshot.schema_stability_score is not None
+    assert snapshot.schema_stability_score < 100.0
+    assert snapshot.trade_count == 4
+    assert snapshot.feature_value is not None
+    assert snapshot.replay_points
 
 
 def test_public_news_connector_treats_unparseable_dates_as_missing():

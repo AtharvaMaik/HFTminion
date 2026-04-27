@@ -12,6 +12,7 @@ class Settings:
     live_vendor_symbol: str
     live_vendor_base_url: str
     live_public_news_rss_url: str
+    live_economic_calendar_url: str
     live_refresh_window_seconds: int
     live_vendor_timeout_seconds: float
 
@@ -32,6 +33,10 @@ def get_settings() -> Settings:
         live_public_news_rss_url=os.getenv(
             "LIVE_PUBLIC_NEWS_RSS_URL",
             "https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en",
+        ),
+        live_economic_calendar_url=os.getenv(
+            "LIVE_ECONOMIC_CALENDAR_URL",
+            "https://www.federalreserve.gov/feeds/press_all.xml",
         ),
         live_refresh_window_seconds=int(os.getenv("LIVE_REFRESH_WINDOW_SECONDS", "30")),
         live_vendor_timeout_seconds=float(os.getenv("LIVE_VENDOR_TIMEOUT_SECONDS", "5")),
