@@ -9,8 +9,11 @@ from fastapi.testclient import TestClient
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
+from app import data as app_data
+from app import seed as app_seed
 from app.main import app
 from app.models import ReplayPointModel
+from app.schemas import FeedDefinition, ReliabilitySnapshot
 from app.services.live_vendor import BinanceSnapshot
 
 
@@ -30,6 +33,59 @@ def live_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.setenv("DATA_MODE", "live")
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db_path}")
     monkeypatch.setenv("LIVE_REFRESH_WINDOW_SECONDS", "0")
+
+    live_timestamp = datetime.utcnow().replace(microsecond=0)
+    live_feeds = app_data.FEEDS + [
+        FeedDefinition(
+            id="feed-public-news",
+            name="PUBLIC_NEWS_ALPHA",
+            vendor="EventPulse",
+            region="eu-west-1",
+            feed_class="news_event_feed",
+            freshness_sla_seconds=45,
+            coverage_target_pct=98.7,
+            status="healthy",
+        ),
+        FeedDefinition(
+            id="feed-economic-calendar",
+            name="ZZ_ECONOMIC_CALENDAR_ALPHA",
+            vendor="EventPulse",
+            region="us-east-1",
+            feed_class="news_event_feed",
+            freshness_sla_seconds=60,
+            coverage_target_pct=97.4,
+            status="healthy",
+        ),
+    ]
+    live_snapshots = {
+        **app_data.SNAPSHOTS,
+        "feed-public-news": ReliabilitySnapshot(
+            timestamp=live_timestamp,
+            freshness=94.0,
+            completeness=97.0,
+            schema_stability=95.0,
+            entity_coverage=93.0,
+            revision_rate=91.0,
+            drift_anomaly_score=89.0,
+            weighted_trust_score=92.4,
+            status="healthy",
+        ),
+        "feed-economic-calendar": ReliabilitySnapshot(
+            timestamp=live_timestamp,
+            freshness=91.0,
+            completeness=96.0,
+            schema_stability=94.0,
+            entity_coverage=90.0,
+            revision_rate=88.0,
+            drift_anomaly_score=87.0,
+            weighted_trust_score=90.1,
+            status="healthy",
+        ),
+    }
+    monkeypatch.setattr(app_data, "FEEDS", live_feeds)
+    monkeypatch.setattr(app_seed, "FEEDS", live_feeds)
+    monkeypatch.setattr(app_data, "SNAPSHOTS", live_snapshots)
+    monkeypatch.setattr(app_seed, "SNAPSHOTS", live_snapshots)
 
     def _fake_fetch_snapshot(self, symbol: str, freshness_sla_seconds: int) -> BinanceSnapshot:
         computed_at = datetime.utcnow().replace(microsecond=0)
@@ -163,3 +219,28 @@ def test_live_feature_and_ingestion_run_use_vendor_refresh(live_client: TestClie
     run_body = run_response.json()
     assert run_body["status"] == "completed"
     assert run_body["run_id"]
+
+
+def test_live_mode_lists_only_live_backed_feeds(live_client: TestClient):
+    response = live_client.get("/api/v1/feeds")
+    assert response.status_code == 200
+    body = response.json()
+    assert sorted(feed["id"] for feed in body) == sorted([
+        "feed-binance-agg",
+        "feed-public-news",
+        "feed-economic-calendar",
+    ])
+
+
+def test_live_mode_hides_seeded_demo_incidents(live_client: TestClient):
+    response = live_client.get("/api/v1/incidents")
+    assert response.status_code == 200
+    body = response.json()
+    expected_live_feed_ids = {
+        "feed-binance-agg",
+        "feed-public-news",
+        "feed-economic-calendar",
+    }
+    assert len(body) > 0
+    assert all(item["id"] not in {"inc-1042", "inc-1043"} for item in body)
+    assert all(item["feed_id"] in expected_live_feed_ids for item in body)
