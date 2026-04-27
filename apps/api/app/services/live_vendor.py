@@ -41,6 +41,13 @@ class BinanceSnapshot:
     quote_volume: float
     computed_at: datetime
     replay_points: list[ReplayPointModel]
+    freshness_score: float | None = None
+    completeness_score: float | None = None
+    schema_stability_score: float | None = None
+    entity_coverage_score: float | None = None
+    revision_rate_score: float | None = None
+    drift_anomaly_score: float | None = None
+    feature_value: float | None = None
 
 
 class BinanceSpotConnector:
@@ -61,6 +68,9 @@ class BinanceSpotConnector:
             response = client.get(path, params=params)
             response.raise_for_status()
             return response.json()
+
+    def is_snapshot_schema_current(self, snapshot_schema_version: str) -> bool:
+        return snapshot_schema_version == self.schema_version
 
     def fetch_snapshot(self, _freshness_sla_seconds: int) -> BinanceSnapshot:
         symbol = self.default_symbol
@@ -155,7 +165,7 @@ class LiveFeedRefreshService:
         if latest_snapshot is not None:
             age_seconds = int((datetime.utcnow().replace(microsecond=0) - latest_snapshot.computed_at).total_seconds())
             if (
-                latest_snapshot.schema_version == connector.schema_version
+                connector.is_snapshot_schema_current(latest_snapshot.schema_version)
                 and age_seconds <= self.settings.live_refresh_window_seconds
             ):
                 print(
@@ -196,18 +206,35 @@ class LiveFeedRefreshService:
             feature = self.feature_repository.get_feature(feature_id)
             impacted_feature_name = feature.name
 
-            freshness = max(
-                0.0,
-                min(
-                    100.0,
-                    round(100 - ((snapshot.latency_seconds / max(1, feed.freshness_sla_seconds)) * 100), 2),
-                ),
+            freshness = getattr(snapshot, "freshness_score", None)
+            if freshness is None:
+                freshness = max(
+                    0.0,
+                    min(
+                        100.0,
+                        round(100 - ((snapshot.latency_seconds / max(1, feed.freshness_sla_seconds)) * 100), 2),
+                    ),
+                )
+            completeness_score = getattr(snapshot, "completeness_score", None)
+            completeness = completeness_score if completeness_score is not None else 100.0
+            schema_stability_score = getattr(snapshot, "schema_stability_score", None)
+            schema_stability = (
+                schema_stability_score if schema_stability_score is not None else 100.0
             )
-            completeness = 100.0
-            schema_stability = 100.0
-            entity_coverage = min(100.0, round((snapshot.trade_count / 1000) * 100, 2))
-            revision_rate = 100.0
-            drift_anomaly_score = max(0.0, round(100 - min(abs(snapshot.price_change_pct) * 4, 70), 2))
+            entity_coverage_score = getattr(snapshot, "entity_coverage_score", None)
+            entity_coverage = (
+                entity_coverage_score
+                if entity_coverage_score is not None
+                else min(100.0, round((snapshot.trade_count / 1000) * 100, 2))
+            )
+            revision_rate_score = getattr(snapshot, "revision_rate_score", None)
+            revision_rate = revision_rate_score if revision_rate_score is not None else 100.0
+            drift_score = getattr(snapshot, "drift_anomaly_score", None)
+            drift_anomaly_score = (
+                drift_score
+                if drift_score is not None
+                else max(0.0, round(100 - min(abs(snapshot.price_change_pct) * 4, 70), 2))
+            )
             weighted_trust = compute_weighted_trust_score(
                 ReliabilityInputs(
                     freshness=freshness,
@@ -219,10 +246,12 @@ class LiveFeedRefreshService:
                 )
             )
             status = classify_status(weighted_trust)
-            feature_value = round(
-                (snapshot.bid_qty - snapshot.ask_qty) / max(snapshot.bid_qty + snapshot.ask_qty, 1.0),
-                4,
-            )
+            feature_value = getattr(snapshot, "feature_value", None)
+            if feature_value is None:
+                feature_value = round(
+                    (snapshot.bid_qty - snapshot.ask_qty) / max(snapshot.bid_qty + snapshot.ask_qty, 1.0),
+                    4,
+                )
 
             feed_snapshot = self.feed_repository.create_snapshot(
                 FeedSnapshotModel(

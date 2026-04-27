@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from pathlib import Path
 import sys
+import xml.etree.ElementTree as ET
 
 import pytest
 from fastapi.testclient import TestClient
@@ -15,6 +16,7 @@ from app.main import app
 from app.models import ReplayPointModel
 from app.schemas import FeedDefinition
 from app.schemas import ReliabilitySnapshot
+from app.services.live_connectors import LiveConnectorSnapshot
 from app.services.live_registry import LIVE_FEED_IDS
 from app.services.live_vendor import BinanceSnapshot
 
@@ -132,6 +134,55 @@ def live_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
         _fake_fetch_snapshot,
     )
 
+    def _fake_public_news_snapshot(self, freshness_sla_seconds: int) -> LiveConnectorSnapshot:
+        computed_at = datetime.utcnow().replace(microsecond=0)
+        return LiveConnectorSnapshot(
+            symbol="public-news-rss",
+            source_name="Public News RSS",
+            source_lineage_prefix=["source:public-news-rss", "rss:item-count"],
+            primary_feature_id="feat-headline-velocity",
+            avg_price=24.0,
+            last_price=7.0,
+            price_change_pct=0.0,
+            latency_seconds=18,
+            schema_version="rss-2.0",
+            bid_qty=7.0,
+            ask_qty=17.0,
+            trade_count=24,
+            quote_volume=24.0,
+            freshness_score=81.5,
+            completeness_score=96.0,
+            schema_stability_score=92.0,
+            entity_coverage_score=88.0,
+            revision_rate_score=76.0,
+            drift_anomaly_score=90.0,
+            feature_value=0.2917,
+            computed_at=computed_at,
+            replay_points=[
+                ReplayPointModel(
+                    feature_id="feat-headline-velocity",
+                    timestamp=computed_at - timedelta(minutes=5),
+                    expected_value=0.2917,
+                    actual_value=0.25,
+                    trust_score=87.0,
+                    blocked=False,
+                ),
+                ReplayPointModel(
+                    feature_id="feat-headline-velocity",
+                    timestamp=computed_at,
+                    expected_value=0.2917,
+                    actual_value=0.2917,
+                    trust_score=90.0,
+                    blocked=False,
+                ),
+            ],
+        )
+
+    monkeypatch.setattr(
+        "app.services.live_connectors.PublicNewsRssConnector.fetch_snapshot",
+        _fake_public_news_snapshot,
+    )
+
     live_incidents = [
         *app_data.INCIDENTS,
         app_data.IncidentRecord(
@@ -227,6 +278,94 @@ def test_live_feed_health_refreshes_from_vendor_snapshot(live_client: TestClient
     assert body["latest_snapshot"]["freshness"] == 88.89
     assert body["latest_snapshot"]["status"] == "healthy"
     assert body["latency_seconds"] == 2
+
+
+def test_binance_snapshot_exposes_optional_live_connector_scores():
+    computed_at = datetime.utcnow().replace(microsecond=0)
+    snapshot = BinanceSnapshot(
+        symbol="BTCUSDT",
+        source_name="Binance",
+        source_lineage_prefix=["binance:BTCUSDT"],
+        primary_feature_id="feat-order-imbalance",
+        avg_price=100000.0,
+        last_price=100120.0,
+        price_change_pct=0.25,
+        latency_seconds=2,
+        schema_version="binance-spot-v3",
+        bid_qty=15.0,
+        ask_qty=5.0,
+        trade_count=860,
+        quote_volume=1200000.0,
+        computed_at=computed_at,
+        replay_points=[],
+    )
+
+    assert snapshot.freshness_score is None
+    assert snapshot.completeness_score is None
+    assert snapshot.schema_stability_score is None
+    assert snapshot.entity_coverage_score is None
+    assert snapshot.revision_rate_score is None
+    assert snapshot.drift_anomaly_score is None
+    assert snapshot.feature_value is None
+
+
+def test_live_news_feed_health_uses_real_source_shape(live_client: TestClient):
+    response = live_client.get("/api/v1/feeds/feed-public-news/health")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["feed"]["id"] == "feed-public-news"
+    assert body["schema_version"].startswith("rss-")
+    assert body["latest_snapshot"]["freshness"] == 81.5
+    assert body["latest_snapshot"]["completeness"] == 96.0
+
+
+def test_live_news_feed_uses_connector_supplied_reliability_scores(live_client: TestClient):
+    response = live_client.get("/api/v1/feeds/feed-public-news/health")
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["schema_version"] == "rss-2.0"
+    assert body["latest_snapshot"]["freshness"] == 81.5
+    assert body["latest_snapshot"]["completeness"] == 96.0
+    assert body["latest_snapshot"]["schema_stability"] == 92.0
+    assert body["latest_snapshot"]["entity_coverage"] == 88.0
+    assert body["latest_snapshot"]["revision_rate"] == 76.0
+    assert body["latest_snapshot"]["drift_anomaly_score"] == 90.0
+
+    feature_response = live_client.get("/api/v1/features/feat-headline-velocity/reliability")
+    assert feature_response.status_code == 200
+    feature_body = feature_response.json()
+    assert feature_body["latest_value"] == 0.2917
+    assert feature_body["lineage"] == [
+        "source:public-news-rss",
+        "rss:item-count",
+        "feat-headline-velocity",
+    ]
+
+
+def test_public_news_connector_treats_unparseable_dates_as_missing():
+    from app.services.live_connectors import PublicNewsRssConnector
+
+    connector = PublicNewsRssConnector()
+    item = ET.fromstring(
+        "<item><title>Example headline</title><pubDate>not-a-real-date</pubDate></item>"
+    )
+
+    title, published_at = connector._read_item(item)
+    assert title == "Example headline"
+    assert published_at is None
+
+
+def test_public_news_connector_parses_rss_dates_without_commas():
+    from app.services.live_connectors import PublicNewsRssConnector
+
+    connector = PublicNewsRssConnector()
+    item = ET.fromstring(
+        "<item><title>Example headline</title><pubDate>27 Apr 2026 12:00:00 +0000</pubDate></item>"
+    )
+
+    _, published_at = connector._read_item(item)
+    assert published_at is not None
 
 
 def test_live_feature_and_ingestion_run_use_vendor_refresh(live_client: TestClient):
