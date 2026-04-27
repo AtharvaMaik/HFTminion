@@ -63,6 +63,21 @@ async function apiGet<T>(path: string, fallback: T): Promise<T> {
   }
 }
 
+async function liveApiGet<T>(path: string, fallback: T): Promise<T> {
+  const apiBaseUrl = await getApiBaseUrl();
+  try {
+    const response = await fetch(`${apiBaseUrl}${path}`, {
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      throw new Error(`API error ${response.status}`);
+    }
+    return (await response.json()) as T;
+  } catch {
+    return fallback;
+  }
+}
+
 export async function getFeeds(): Promise<FeedDefinition[]> {
   return apiGet("/api/v1/feeds", []);
 }
@@ -71,8 +86,16 @@ export async function getFeedHealth(feedId: string): Promise<FeedHealth | null> 
   return apiGet(`/api/v1/feeds/${feedId}/health`, null);
 }
 
+export async function getFeedHealthLive(feedId: string): Promise<FeedHealth | null> {
+  return liveApiGet(`/api/v1/feeds/${feedId}/health`, null);
+}
+
 export async function getIncidents(): Promise<IncidentRecord[]> {
   return apiGet("/api/v1/incidents", fallbackOverview.incidents);
+}
+
+export async function getIncidentsLive(): Promise<IncidentRecord[]> {
+  return liveApiGet("/api/v1/incidents", fallbackOverview.incidents);
 }
 
 export async function acknowledgeIncident(incidentId: string): Promise<IncidentRecord | null> {
@@ -97,6 +120,10 @@ export async function acknowledgeIncident(incidentId: string): Promise<IncidentR
 
 export async function getFeatures(): Promise<FeatureDefinition[]> {
   return apiGet("/api/v1/features", []);
+}
+
+export async function getOverviewLive(): Promise<OverviewResponse> {
+  return liveApiGet("/api/v1/metrics/overview", fallbackOverview);
 }
 
 export async function getReplay(featureId: string): Promise<ReplayResponse | null> {

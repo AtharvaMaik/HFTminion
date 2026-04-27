@@ -8,10 +8,10 @@ import {
   useReactTable,
   type ColumnDef,
 } from "@tanstack/react-table";
-import { useMemo, useOptimistic, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
 
-import { acknowledgeIncident } from "@/lib/api";
+import { acknowledgeIncident, getIncidentsLive } from "@/lib/api";
+import { useLiveQuery } from "@/lib/use-live-query";
 
 const severityClass = {
   healthy: "text-emerald-200 bg-emerald-400/12",
@@ -20,17 +20,15 @@ const severityClass = {
 };
 
 export function IncidentsTable({ incidents }: { incidents: IncidentRecord[] }) {
-  const router = useRouter();
-  const [isPending, startTransition] = useTransition();
-  const [optimisticIncidents, setOptimisticIncidents] = useOptimistic(
-    incidents,
-    (state, incidentId: string) =>
-      state.map((incident) =>
-        incident.id === incidentId
-          ? { ...incident, acknowledged: true, status: "investigating" as const }
-          : incident
-      )
-  );
+  const { data: liveIncidents, setData: setLiveIncidents } = useLiveQuery({
+    initialData: incidents,
+    query: getIncidentsLive,
+  });
+  const [pendingIncidentId, setPendingIncidentId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLiveIncidents(incidents);
+  }, [incidents, setLiveIncidents]);
 
   const columns = useMemo<ColumnDef<IncidentRecord>[]>(
     () => [
@@ -116,29 +114,47 @@ export function IncidentsTable({ incidents }: { incidents: IncidentRecord[] }) {
           ) : (
             <button
               type="button"
-              disabled={isPending}
-              onClick={() => {
+              disabled={pendingIncidentId === row.original.id}
+              onClick={async () => {
                 const incidentId = row.original.id;
-                startTransition(async () => {
-                  setOptimisticIncidents(incidentId);
-                  await acknowledgeIncident(incidentId);
-                  router.refresh();
-                });
+                const previousIncidents = liveIncidents;
+                setPendingIncidentId(incidentId);
+                setLiveIncidents(
+                  liveIncidents.map((incident) =>
+                    incident.id === incidentId
+                      ? { ...incident, acknowledged: true, status: "investigating" as const }
+                      : incident
+                  )
+                );
+
+                const updatedIncident = await acknowledgeIncident(incidentId);
+
+                if (updatedIncident) {
+                  setLiveIncidents(
+                    previousIncidents.map((incident) =>
+                      incident.id === incidentId ? updatedIncident : incident
+                    )
+                  );
+                } else {
+                  setLiveIncidents(previousIncidents);
+                }
+
+                setPendingIncidentId(null);
               }}
               className="inline-flex rounded-full border border-orange-300/25 px-3 py-1 text-xs uppercase tracking-[0.18em] text-orange-100 transition-colors hover:bg-orange-300/12 disabled:cursor-not-allowed disabled:opacity-60"
             >
               Acknowledge
             </button>
-          ),
+        ),
       },
     ],
-    [isPending, router, setOptimisticIncidents]
+    [liveIncidents, pendingIncidentId, setLiveIncidents]
   );
 
   // TanStack Table is intentionally used here for the operations grid.
   // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
-    data: optimisticIncidents,
+    data: liveIncidents,
     columns,
     getCoreRowModel: getCoreRowModel(),
   });
