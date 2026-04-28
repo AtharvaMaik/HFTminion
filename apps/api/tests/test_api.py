@@ -12,8 +12,9 @@ sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from app import data as app_data
 from app import seed as app_seed
+from app.db import get_session_factory
 from app.main import app
-from app.models import ReplayPointModel
+from app.models import FeedSnapshotModel, FeatureSnapshotModel, ReplayPointModel
 from app.schemas import FeedDefinition
 from app.schemas import ReliabilitySnapshot
 from app.services.live_connectors import LiveConnectorSnapshot
@@ -588,6 +589,153 @@ def test_live_mode_overview_counts_only_live_backed_records(live_client: TestCli
         "critical": 0,
     }
     assert all(item["feed_id"] in LIVE_FEED_IDS for item in body["incidents"])
+
+
+def test_live_mode_overview_uses_persisted_snapshot_history_for_trend(
+    live_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    base_time = datetime.utcnow().replace(microsecond=0, second=0)
+    bucket_a = base_time - timedelta(seconds=10)
+    bucket_b = base_time - timedelta(seconds=5)
+
+    monkeypatch.setattr(
+        "app.services.live_vendor.LiveFeedRefreshService.refresh_registered_live_feeds",
+        lambda self: None,
+    )
+
+    with get_session_factory()() as session:
+        session.query(FeatureSnapshotModel).delete()
+        session.query(FeedSnapshotModel).delete()
+        snapshots = [
+            FeedSnapshotModel(
+                feed_id="feed-binance-agg",
+                computed_at=bucket_a,
+                freshness=70.0,
+                completeness=70.0,
+                schema_stability=70.0,
+                entity_coverage=70.0,
+                revision_rate=70.0,
+                drift_anomaly_score=70.0,
+                weighted_trust_score=70.0,
+                status="warning",
+                latency_seconds=2,
+                schema_version="binance-spot-v3",
+            ),
+            FeedSnapshotModel(
+                feed_id="feed-public-news",
+                computed_at=bucket_a + timedelta(seconds=1),
+                freshness=80.0,
+                completeness=80.0,
+                schema_stability=80.0,
+                entity_coverage=80.0,
+                revision_rate=80.0,
+                drift_anomaly_score=80.0,
+                weighted_trust_score=80.0,
+                status="warning",
+                latency_seconds=2,
+                schema_version="rss-2.0",
+            ),
+            FeedSnapshotModel(
+                feed_id="feed-economic-calendar",
+                computed_at=bucket_a + timedelta(seconds=2),
+                freshness=90.0,
+                completeness=90.0,
+                schema_stability=90.0,
+                entity_coverage=90.0,
+                revision_rate=90.0,
+                drift_anomaly_score=90.0,
+                weighted_trust_score=90.0,
+                status="healthy",
+                latency_seconds=2,
+                schema_version="rss-2.0",
+            ),
+            FeedSnapshotModel(
+                feed_id="feed-binance-agg",
+                computed_at=bucket_b,
+                freshness=82.0,
+                completeness=82.0,
+                schema_stability=82.0,
+                entity_coverage=82.0,
+                revision_rate=82.0,
+                drift_anomaly_score=82.0,
+                weighted_trust_score=82.0,
+                status="warning",
+                latency_seconds=2,
+                schema_version="binance-spot-v3",
+            ),
+            FeedSnapshotModel(
+                feed_id="feed-public-news",
+                computed_at=bucket_b + timedelta(seconds=1),
+                freshness=84.0,
+                completeness=84.0,
+                schema_stability=84.0,
+                entity_coverage=84.0,
+                revision_rate=84.0,
+                drift_anomaly_score=84.0,
+                weighted_trust_score=84.0,
+                status="warning",
+                latency_seconds=2,
+                schema_version="rss-2.0",
+            ),
+            FeedSnapshotModel(
+                feed_id="feed-economic-calendar",
+                computed_at=bucket_b + timedelta(seconds=2),
+                freshness=86.0,
+                completeness=86.0,
+                schema_stability=86.0,
+                entity_coverage=86.0,
+                revision_rate=86.0,
+                drift_anomaly_score=86.0,
+                weighted_trust_score=86.0,
+                status="healthy",
+                latency_seconds=2,
+                schema_version="rss-2.0",
+            ),
+        ]
+        session.add_all(snapshots)
+        session.flush()
+        session.add_all(
+            [
+                FeatureSnapshotModel(
+                    feature_id="feat-order-imbalance",
+                    feed_snapshot_id=snapshots[3].id,
+                    source_timestamp=bucket_b,
+                    latest_value=0.1,
+                    trust_score=82.0,
+                    blocked=False,
+                    lineage='["binance:BTCUSDT","feat-order-imbalance"]',
+                ),
+                FeatureSnapshotModel(
+                    feature_id="feat-headline-velocity",
+                    feed_snapshot_id=snapshots[4].id,
+                    source_timestamp=bucket_b + timedelta(seconds=1),
+                    latest_value=0.2,
+                    trust_score=84.0,
+                    blocked=False,
+                    lineage='["source:public-news-rss","feat-headline-velocity"]',
+                ),
+                FeatureSnapshotModel(
+                    feature_id="feat-economic-event-pressure",
+                    feed_snapshot_id=snapshots[5].id,
+                    source_timestamp=bucket_b + timedelta(seconds=2),
+                    latest_value=0.3,
+                    trust_score=86.0,
+                    blocked=False,
+                    lineage='["source:economic-calendar","feat-economic-event-pressure"]',
+                ),
+            ]
+        )
+        session.commit()
+
+    response = live_client.get("/api/v1/metrics/overview")
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["trust_timeseries"][-2:] == [
+        [bucket_a.isoformat() + "+00:00", 80.0],
+        [bucket_b.isoformat() + "+00:00", 84.0],
+    ]
 
 
 def test_live_registry_declares_all_live_feed_ids():

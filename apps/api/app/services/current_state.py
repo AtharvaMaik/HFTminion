@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections import defaultdict
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from ..repositories import (
     FeatureRepository,
@@ -149,6 +150,44 @@ class CurrentStateService:
             incidents = [incident for incident in incidents if incident.feed_id in live_feed_ids]
         return [_serialize_incident(incident) for incident in incidents]
 
+    def _build_trust_timeseries(self, live_feed_ids: set[str] | None = None) -> list[tuple[str, float]]:
+        since = datetime.utcnow().replace(microsecond=0) - timedelta(hours=24)
+        recent_snapshots = self.metrics_repository.list_recent_snapshots(
+            since,
+            sorted(live_feed_ids) if live_feed_ids is not None else None,
+        )
+
+        if not recent_snapshots:
+            latest_snapshots = self.metrics_repository.list_latest_snapshots()
+            if live_feed_ids is not None:
+                latest_snapshots = [
+                    snapshot for snapshot in latest_snapshots if snapshot.feed_id in live_feed_ids
+                ]
+            if not latest_snapshots:
+                return []
+            latest_timestamp = max(snapshot.computed_at for snapshot in latest_snapshots)
+            latest_average = round(
+                sum(snapshot.weighted_trust_score for snapshot in latest_snapshots)
+                / len(latest_snapshots),
+                1,
+            )
+            return [(latest_timestamp.replace(tzinfo=timezone.utc).isoformat(), latest_average)]
+
+        buckets: dict[datetime, list[float]] = defaultdict(list)
+        for snapshot in recent_snapshots:
+            bucket_second = snapshot.computed_at.second - (snapshot.computed_at.second % 5)
+            bucket_time = snapshot.computed_at.replace(second=bucket_second, microsecond=0)
+            buckets[bucket_time].append(snapshot.weighted_trust_score)
+
+        trend = sorted(
+            (
+                bucket_time.replace(tzinfo=timezone.utc).isoformat(),
+                round(sum(scores) / len(scores), 1),
+            )
+            for bucket_time, scores in buckets.items()
+        )[-12:]
+        return trend
+
     def metrics_overview(self) -> OverviewResponse:
         if self._is_live_mode_enabled():
             self.live_refresh.refresh_registered_live_feeds()
@@ -172,11 +211,7 @@ class CurrentStateService:
 
         serialized_incidents = [_serialize_incident(incident) for incident in incidents]
         average_trust = round(sum(snapshot.weighted_trust_score for snapshot in snapshots) / max(1, len(snapshots)), 1)
-        now = datetime.utcnow()
-        trend = [
-            ((now - timedelta(hours=idx)).strftime("%H:%M"), score)
-            for idx, score in enumerate([93, 92, 91, 90, 88, 87, 84, 82, 80, 78, 74, 71])
-        ][::-1]
+        trend = self._build_trust_timeseries(live_feed_ids if live_mode else None)
 
         return OverviewResponse(
             metrics=[

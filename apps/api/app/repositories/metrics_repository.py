@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
@@ -34,3 +36,14 @@ class MetricsRepository:
     def count_blocked_features(self) -> int:
         statement = select(FeatureSnapshotModel).where(FeatureSnapshotModel.blocked.is_(True))
         return len(list(self.session.scalars(statement)))
+
+    def list_recent_snapshots(
+        self,
+        since: datetime,
+        feed_ids: list[str] | None = None,
+    ) -> list[FeedSnapshotModel]:
+        statement = select(FeedSnapshotModel).where(FeedSnapshotModel.computed_at >= since)
+        if feed_ids:
+            statement = statement.where(FeedSnapshotModel.feed_id.in_(feed_ids))
+        statement = statement.order_by(FeedSnapshotModel.computed_at.asc(), FeedSnapshotModel.id.asc())
+        return list(self.session.scalars(statement))

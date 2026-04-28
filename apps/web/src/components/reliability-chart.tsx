@@ -19,6 +19,17 @@ function buildPath(points: Array<{ x: number; y: number }>) {
   return points.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
 }
 
+function formatTimeLabel(value: string) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+  return new Intl.DateTimeFormat(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(parsed);
+}
+
 export function ReliabilityChart({ data }: ReliabilityChartProps) {
   if (data.length === 0) {
     return (
@@ -43,7 +54,7 @@ export function ReliabilityChart({ data }: ReliabilityChartProps) {
     const y = CHART_PADDING.top + innerHeight - normalized * innerHeight;
 
     return {
-      label: time,
+      label: formatTimeLabel(time),
       value,
       x: clamp(x, CHART_PADDING.left, CHART_WIDTH - CHART_PADDING.right),
       y: clamp(y, CHART_PADDING.top, CHART_HEIGHT - CHART_PADDING.bottom),
@@ -133,4 +144,3 @@ export function ReliabilityChart({ data }: ReliabilityChartProps) {
     </div>
   );
 }
-

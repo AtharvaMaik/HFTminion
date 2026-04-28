@@ -190,7 +190,7 @@ def acknowledge_incident(incident_id: str) -> IncidentRecord:
 
 def metrics_overview() -> OverviewResponse:
     trend = [
-        ((datetime.utcnow() - timedelta(hours=idx)).strftime("%H:%M"), score)
+        ((datetime.utcnow() - timedelta(hours=idx)).replace(microsecond=0).isoformat() + "Z", score)
         for idx, score in enumerate([93, 92, 91, 90, 88, 87, 84, 82, 80, 78, 74, 71])
     ][::-1]
     return OverviewResponse(
