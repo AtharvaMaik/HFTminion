@@ -19,15 +19,44 @@ function buildPath(points: Array<{ x: number; y: number }>) {
   return points.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
 }
 
-function formatTimeLabel(value: string) {
+function getTimeLabelFormatter(values: string[]) {
+  const parsedValues = values
+    .map((value) => new Date(value))
+    .filter((value) => !Number.isNaN(value.getTime()));
+  const spanMs =
+    parsedValues.length > 1
+      ? parsedValues[parsedValues.length - 1].getTime() - parsedValues[0].getTime()
+      : 0;
+
+  return new Intl.DateTimeFormat(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+    ...(spanMs < 10 * 60 * 1000 ? { second: "2-digit" as const } : {}),
+  });
+}
+
+function formatTimeLabel(value: string, formatter: Intl.DateTimeFormat) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) {
     return value;
   }
-  return new Intl.DateTimeFormat(undefined, {
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(parsed);
+  return formatter.format(parsed);
+}
+
+function buildYTicks(minValue: number, maxValue: number) {
+  const range = Math.max(1, maxValue - minValue);
+  const ticks = [minValue, minValue + range / 2, maxValue].map((value) => Math.round(value * 10) / 10);
+  return ticks.filter((tick, index) => ticks.indexOf(tick) === index);
+}
+
+function shouldRenderXAxisLabel(index: number, pointCount: number) {
+  if (pointCount <= 4) {
+    return true;
+  }
+
+  const targetTicks = 4;
+  const step = Math.ceil((pointCount - 1) / (targetTicks - 1));
+  return index === 0 || index === pointCount - 1 || index % step === 0;
 }
 
 export function ReliabilityChart({ data }: ReliabilityChartProps) {
@@ -43,6 +72,7 @@ export function ReliabilityChart({ data }: ReliabilityChartProps) {
   const minValue = Math.min(...values);
   const maxValue = Math.max(...values);
   const range = Math.max(1, maxValue - minValue);
+  const timeFormatter = getTimeLabelFormatter(data.map(([time]) => time));
   const innerWidth = CHART_WIDTH - CHART_PADDING.left - CHART_PADDING.right;
   const innerHeight = CHART_HEIGHT - CHART_PADDING.top - CHART_PADDING.bottom;
 
@@ -54,7 +84,7 @@ export function ReliabilityChart({ data }: ReliabilityChartProps) {
     const y = CHART_PADDING.top + innerHeight - normalized * innerHeight;
 
     return {
-      label: formatTimeLabel(time),
+      label: formatTimeLabel(time, timeFormatter),
       value,
       x: clamp(x, CHART_PADDING.left, CHART_WIDTH - CHART_PADDING.right),
       y: clamp(y, CHART_PADDING.top, CHART_HEIGHT - CHART_PADDING.bottom),
@@ -65,7 +95,7 @@ export function ReliabilityChart({ data }: ReliabilityChartProps) {
   const areaPath = `${linePath} L ${points[points.length - 1].x} ${
     CHART_HEIGHT - CHART_PADDING.bottom
   } L ${points[0].x} ${CHART_HEIGHT - CHART_PADDING.bottom} Z`;
-  const yTicks = [minValue, minValue + range / 2, maxValue].map((value) => Math.round(value));
+  const yTicks = buildYTicks(minValue, maxValue);
 
   return (
     <div className="relative h-[280px] w-full overflow-hidden rounded-xl bg-white/[0.02]">
@@ -121,19 +151,29 @@ export function ReliabilityChart({ data }: ReliabilityChartProps) {
           strokeLinecap="round"
         />
 
-        {points.map((point) => (
+        {points.map((point, index) => (
           <g key={`${point.label}-${point.value}`}>
             <circle cx={point.x} cy={point.y} r="4.5" fill="#0b1326" stroke="#4cd6ff" strokeWidth="2" />
-            <text
-              x={point.x}
-              y={CHART_HEIGHT - 12}
-              textAnchor="middle"
-              fill="rgba(218, 226, 253, 0.55)"
-              fontSize="11"
-              fontFamily="var(--font-mono-ui)"
-            >
-              {point.label}
-            </text>
+            {shouldRenderXAxisLabel(index, points.length) ? (
+              <text
+                x={
+                  index === 0
+                    ? point.x + 2
+                    : index === points.length - 1
+                      ? point.x - 2
+                      : point.x
+                }
+                y={CHART_HEIGHT - 12}
+                textAnchor={
+                  index === 0 ? "start" : index === points.length - 1 ? "end" : "middle"
+                }
+                fill="rgba(218, 226, 253, 0.55)"
+                fontSize="11"
+                fontFamily="var(--font-mono-ui)"
+              >
+                {point.label}
+              </text>
+            ) : null}
           </g>
         ))}
       </svg>
