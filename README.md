@@ -6,7 +6,7 @@ This repository currently contains an MVP vertical slice:
 - A Next.js operations UI for dashboard, feed drill-down, and incident replay
 - A FastAPI control-plane API with seeded or database-backed feed, feature, and incident data
 - A scoring module for weighted trust computation
-- Synthetic ingestion connectors for local development
+- Live public-source connectors for market, news, and macro signal monitoring
 - Docker and Terraform scaffolding for local dependencies and AWS direction
 - A Vercel multi-service deployment path for sharing the web UI and API on one domain
 
@@ -145,7 +145,10 @@ When `DATA_MODE=database`, startup will:
 
 ### Run the API in Live Vendor Mode
 
-The first live vendor-backed slice now supports `feed-binance-agg` using Binance public spot market data for `BTCUSDT`.
+Live mode now supports three public no-auth sources:
+- `feed-binance-agg` using Binance US public spot market data for `BTCUSDT`
+- `feed-public-news` using public RSS headlines
+- `feed-economic-calendar` using Federal Reserve press-release RSS as the live macro/event cadence source
 
 ```powershell
 $env:DATA_MODE="live"
@@ -154,10 +157,12 @@ python -m uvicorn apps.api.app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
 In `DATA_MODE=live`:
-- `feed-binance-agg` refreshes from the live vendor path
-- `feat-order-imbalance` is derived from live order book depth
-- the live snapshot is persisted into the existing feed/feature/replay tables
-- the other feeds continue using the seeded database path
+- `/api/v1/feeds`, `/api/v1/features`, `/api/v1/incidents`, and `/api/v1/metrics/overview` expose only the live-backed records
+- `feed-binance-agg` refreshes from the live market data path
+- `feed-public-news` refreshes from the configured public RSS source
+- `feed-economic-calendar` refreshes from the configured Federal Reserve RSS source
+- `feat-order-imbalance`, `feat-headline-velocity`, and `feat-economic-event-pressure` are derived from those live sources
+- live snapshots, replay points, ingestion runs, and live incidents are persisted into the existing tables
 
 Optional settings:
 
@@ -165,11 +170,13 @@ Optional settings:
 LIVE_VENDOR_FEED_ID=feed-binance-agg
 LIVE_VENDOR_SYMBOL=BTCUSDT
 LIVE_VENDOR_BASE_URL=https://api.binance.us
+LIVE_PUBLIC_NEWS_RSS_URL=https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en
+LIVE_ECONOMIC_CALENDAR_URL=https://www.federalreserve.gov/feeds/press_all.xml
 LIVE_REFRESH_WINDOW_SECONDS=30
 LIVE_VENDOR_TIMEOUT_SECONDS=5
 ```
 
-The default hosted configuration uses `https://api.binance.us` because Vercel's US runtime can receive HTTP 451 from `api.binance.com`.
+The default hosted configuration uses `https://api.binance.us` because Vercel's US runtime can receive HTTP 451 from `api.binance.com`. The macro source defaults to the Federal Reserve RSS feed because it is fetchable from automated server-side clients, unlike some government calendar endpoints that block bot traffic.
 
 ### Run Local Infra
 
@@ -219,7 +226,8 @@ Invoke-WebRequest http://127.0.0.1:8000/api/v1/feeds
 
 UI:
 - `/`
-- `/feeds/feed-global-news`
+- `/feeds/feed-public-news`
+- `/feeds/feed-economic-calendar`
 - `/incidents`
 
 ## Deployment
@@ -276,13 +284,13 @@ DATA_MODE=live
 LIVE_VENDOR_SYMBOL=BTCUSDT
 ```
 
-If you override the vendor base URL, prefer a region-accessible endpoint for your deployment. The default app config uses `https://api.binance.us` so the shared Vercel deployment can refresh successfully from the US.
+If you override the live source URLs, prefer endpoints that are reachable from automated server-side clients in your deployment region. The default app config uses `https://api.binance.us` for market data and `https://www.federalreserve.gov/feeds/press_all.xml` for macro/event cadence because both are fetchable from the shared Vercel deployment.
 
 If `DATABASE_URL` is not set on Vercel, the API falls back to `/tmp/altdata.db`, which is good enough for a shareable live demo but not durable across cold starts.
 
 ## How To Integrate This Into a Real Pipeline
 
-The current repo uses seeded data for the UI and API contract, but the architecture is already shaped for a real event-driven data pipeline.
+The current repo now has a truthful live public-source slice in `DATA_MODE=live`, while `seeded` and `database` modes still exist for local/demo workflows. The architecture is already shaped for a deeper real event-driven data pipeline.
 
 ### 1. Ingestion Layer
 
@@ -410,9 +418,9 @@ Vendor Feed
 ### 7. What Still Needs to Be Added for a Real Pipeline
 
 Before this becomes production-ready, add:
-- database-backed persistence instead of seeded in-memory data
-- Alembic migrations for all core tables
-- real connector implementations
+- durable hosted database infrastructure instead of ephemeral fallback storage
+- broader vendor coverage beyond the current three public sources
+- source-specific parsing, retry, and alerting hardening for each connector
 - object-store replay retrieval
 - auth and audit logging
 - incident workflow persistence
@@ -438,12 +446,12 @@ The expected production targets are:
 This repository is currently an MVP scaffold and operator demo baseline.
 
 Important limitations:
-- only one feed is live-vendor backed today (`feed-binance-agg`)
-- most feeds still use seeded demo data
+- live mode currently covers only three public sources, not commercial vendor integrations
+- seeded and database demo modes still exist for local/demo workflows
 - Docker infra can require local port hygiene
 - live ingestion is polling-based, not a full production pipeline
-- incident workflow is not durable
-- replay is illustrative, not reconstructed from archived payloads
+- hosted persistence can still fall back to ephemeral storage if `DATABASE_URL` is not configured
+- replay is still illustrative, not reconstructed from archived payloads
 
 ## Why This Exists
 

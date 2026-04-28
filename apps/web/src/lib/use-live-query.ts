@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 
 type UseLiveQueryOptions<T> = {
   initialData: T;
@@ -16,13 +16,7 @@ export function useLiveQuery<T>({
   const [data, setData] = useState(initialData);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const mountedRef = useRef(true);
-  const queryRef = useRef(query);
-
-  queryRef.current = query;
-
-  useEffect(() => {
-    setData(initialData);
-  }, [initialData]);
+  const runQuery = useEffectEvent(query);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -30,7 +24,7 @@ export function useLiveQuery<T>({
     const refresh = async () => {
       setIsRefreshing(true);
       try {
-        const nextData = await queryRef.current();
+        const nextData = await runQuery();
         if (mountedRef.current) {
           setData(nextData);
         }
