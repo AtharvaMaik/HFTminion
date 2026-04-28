@@ -19,7 +19,13 @@ const severityClass = {
   critical: "text-rose-100 bg-rose-400/16",
 };
 
-export function IncidentsTable({ incidents }: { incidents: IncidentRecord[] }) {
+export function IncidentsTable({
+  incidents,
+  feedNameById,
+}: {
+  incidents: IncidentRecord[];
+  feedNameById?: Record<string, string>;
+}) {
   const { data: liveIncidents, setData: setLiveIncidents } = useLiveQuery({
     initialData: incidents,
     query: getIncidentsLive,
@@ -42,7 +48,7 @@ export function IncidentsTable({ incidents }: { incidents: IncidentRecord[] }) {
               href={`/feeds/${row.original.feed_id}`}
               className="mt-1 inline-block text-xs text-cyan-200/70 hover:text-cyan-100"
             >
-              {row.original.feed_id}
+              {feedNameById?.[row.original.feed_id] ?? row.original.feed_id}
             </Link>
           </div>
         ),
@@ -86,7 +92,7 @@ export function IncidentsTable({ incidents }: { incidents: IncidentRecord[] }) {
       },
       {
         accessorKey: "impacted_features",
-        header: "Impacted Features",
+        header: "Impacted Signals",
         cell: ({ row }) => (
           <div className="flex flex-wrap gap-2">
             {row.original.impacted_features.map((feature) => (
@@ -106,7 +112,7 @@ export function IncidentsTable({ incidents }: { incidents: IncidentRecord[] }) {
         cell: ({ row }) =>
           row.original.acknowledged ? (
             <Link
-              href="/replay"
+              href="/incidents"
               className="inline-flex rounded-full border border-cyan-300/20 px-3 py-1 text-xs uppercase tracking-[0.18em] text-cyan-100 hover:bg-cyan-400/10"
             >
               Replay
@@ -148,7 +154,7 @@ export function IncidentsTable({ incidents }: { incidents: IncidentRecord[] }) {
         ),
       },
     ],
-    [liveIncidents, pendingIncidentId, setLiveIncidents]
+    [feedNameById, liveIncidents, pendingIncidentId, setLiveIncidents]
   );
 
   // TanStack Table is intentionally used here for the operations grid.

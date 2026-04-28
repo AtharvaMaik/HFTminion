@@ -5,16 +5,17 @@ import { getFeeds, getIncidents } from "@/lib/api";
 
 export default async function FeedsIndexPage() {
   const [feeds, incidents] = await Promise.all([getFeeds(), getIncidents()]);
+  const feedNameById = Object.fromEntries(feeds.map((feed) => [feed.id, feed.name]));
 
   return (
-    <AppShell eyebrow="Feed Directory" title="All monitored data feeds">
+    <AppShell eyebrow="Feed Directory" title="All live public sources">
       <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
         <section className="panel rounded-2xl p-5">
           <div className="text-xs uppercase tracking-[0.28em] text-white/45">
-            Feed Catalog
+            Live Source Catalog
           </div>
           <h2 className="mt-2 font-[family-name:var(--font-display)] text-xl">
-            Select a live integration surface
+            Select a live public source
           </h2>
           <div className="mt-6 space-y-4">
             {feeds.map((feed) => (
@@ -35,7 +36,7 @@ export default async function FeedsIndexPage() {
                   </div>
                 </div>
                 <div className="mt-4 grid gap-3 text-sm text-white/60 md:grid-cols-3">
-                  <div>Class: {feed.feed_class}</div>
+                  <div>Type: {feed.feed_class.replaceAll("_", " ")}</div>
                   <div>SLA: {feed.freshness_sla_seconds}s</div>
                   <div>Coverage: {feed.coverage_target_pct}%</div>
                 </div>
@@ -49,7 +50,7 @@ export default async function FeedsIndexPage() {
             Active Exceptions
           </div>
           <h2 className="mt-2 font-[family-name:var(--font-display)] text-xl">
-            Incidents by upstream feed
+            Incidents by live source
           </h2>
           <div className="mt-6 space-y-4">
             {incidents.map((incident) => (
@@ -61,7 +62,9 @@ export default async function FeedsIndexPage() {
                   </div>
                 </div>
                 <div className="mt-2 text-sm text-white/65">{incident.title}</div>
-                <div className="mt-2 text-xs text-cyan-100">{incident.feed_id}</div>
+                <div className="mt-2 text-xs text-cyan-100">
+                  {feedNameById[incident.feed_id] ?? incident.feed_id}
+                </div>
               </div>
             ))}
           </div>

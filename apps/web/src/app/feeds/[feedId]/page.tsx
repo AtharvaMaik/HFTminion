@@ -15,9 +15,10 @@ export default async function FeedPage({ params }: FeedPageProps) {
   ]);
 
   const feedFeatures = features.filter((feature) => feature.feed_id === feedId);
+  const sourceName = health?.feed.name ?? feedId;
 
   return (
-    <AppShell eyebrow="Feed Drill-down" title={`Feed detail: ${feedId}`}>
+    <AppShell eyebrow="Live Source Detail" title={sourceName}>
       <FeedLivePanel
         feedId={feedId}
         feedFeatures={feedFeatures}

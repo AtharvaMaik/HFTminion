@@ -1,24 +1,45 @@
 "use client";
 
-import type { OverviewResponse } from "@contracts";
+import type { FeedDefinition, OverviewResponse } from "@contracts";
+import Link from "next/link";
 
-import { getOverviewLive } from "@/lib/api";
+import { getFeedsLive, getOverviewLive } from "@/lib/api";
 import { useLiveQuery } from "@/lib/use-live-query";
 
 import { IncidentsTable } from "./incidents-table";
 import { MetricCard } from "./metric-card";
 import { ReliabilityChart } from "./reliability-chart";
 
-export function OverviewLivePanel({ initialOverview }: { initialOverview: OverviewResponse }) {
+export function OverviewLivePanel({
+  initialOverview,
+  initialFeeds,
+}: {
+  initialOverview: OverviewResponse;
+  initialFeeds: FeedDefinition[];
+}) {
   const { data: overview, isRefreshing } = useLiveQuery({
     initialData: initialOverview,
     query: getOverviewLive,
+  });
+  const { data: feeds } = useLiveQuery({
+    initialData: initialFeeds,
+    query: getFeedsLive,
+  });
+  const feedNameById = Object.fromEntries(feeds.map((feed) => [feed.id, feed.name]));
+  const metrics = overview.metrics.map((metric) => {
+    if (metric.label === "Tracked feeds") {
+      return { ...metric, value: String(feeds.length), delta: "live public sources" };
+    }
+    if (metric.label === "Blocked features") {
+      return { ...metric, label: "Blocked signals", delta: "live signal reliability" };
+    }
+    return metric;
   });
 
   return (
     <>
       <section className="grid gap-4 xl:grid-cols-4">
-        {overview.metrics.map((metric) => (
+        {metrics.map((metric) => (
           <MetricCard key={metric.label} {...metric} />
         ))}
       </section>
@@ -43,10 +64,10 @@ export function OverviewLivePanel({ initialOverview }: { initialOverview: Overvi
 
         <div className="panel rounded-2xl p-5">
           <div className="text-xs uppercase tracking-[0.28em] text-white/45">
-            Fleet Status
+            Live Source Status
           </div>
           <h2 className="mt-2 font-[family-name:var(--font-display)] text-xl">
-            Feed health distribution
+            Health across {feeds.length} live public sources
           </h2>
           <div className="mt-8 space-y-4">
             {Object.entries(overview.feeds_by_status).map(([status, count]) => (
@@ -81,35 +102,33 @@ export function OverviewLivePanel({ initialOverview }: { initialOverview: Overvi
               Operator queue with replay handoff
             </h2>
           </div>
-          <IncidentsTable incidents={overview.incidents} />
+          <IncidentsTable incidents={overview.incidents} feedNameById={feedNameById} />
         </div>
 
         <div className="panel rounded-2xl p-5">
           <div className="text-xs uppercase tracking-[0.28em] text-white/45">
-            Stitch Baseline
+            Live Source Roster
           </div>
           <h2 className="mt-2 font-[family-name:var(--font-display)] text-xl">
-            Generated surface references
+            The public sources currently tracked
           </h2>
           <div className="mt-6 space-y-4 text-sm text-white/70">
-            <div className="rounded-xl bg-white/4 p-4">
-              <div className="font-medium text-cyan-100">Dashboard screen</div>
-              <div className="mt-2 font-[family-name:var(--font-mono)] text-xs">
-                d084e2e784534dfbac1a27034fc6ce42
-              </div>
-            </div>
-            <div className="rounded-xl bg-white/4 p-4">
-              <div className="font-medium text-cyan-100">Feed detail drill-down</div>
-              <div className="mt-2 font-[family-name:var(--font-mono)] text-xs">
-                6ae1696353cb443cbecd3b5147974928
-              </div>
-            </div>
-            <div className="rounded-xl bg-white/4 p-4">
-              <div className="font-medium text-cyan-100">Incident replay surface</div>
-              <div className="mt-2 font-[family-name:var(--font-mono)] text-xs">
-                c0a0ea2698ee4ea182da94d846904802
-              </div>
-            </div>
+            {feeds.map((feed) => (
+              <Link
+                key={feed.id}
+                href={`/feeds/${feed.id}`}
+                className="block rounded-xl bg-white/4 p-4 transition-colors hover:bg-white/8"
+              >
+                <div className="font-medium text-cyan-100">{feed.name}</div>
+                <div className="mt-2 text-xs uppercase tracking-[0.18em] text-white/45">
+                  {feed.vendor} / {feed.region}
+                </div>
+                <div className="mt-3 flex items-center justify-between text-xs text-white/55">
+                  <span>{feed.feed_class.replaceAll("_", " ")}</span>
+                  <span className="uppercase tracking-[0.18em] text-white/70">{feed.status}</span>
+                </div>
+              </Link>
+            ))}
           </div>
         </div>
       </section>

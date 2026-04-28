@@ -82,6 +82,10 @@ export async function getFeeds(): Promise<FeedDefinition[]> {
   return apiGet("/api/v1/feeds", []);
 }
 
+export async function getFeedsLive(): Promise<FeedDefinition[]> {
+  return liveApiGet("/api/v1/feeds", []);
+}
+
 export async function getFeedHealth(feedId: string): Promise<FeedHealth | null> {
   return apiGet(`/api/v1/feeds/${feedId}/health`, null);
 }
