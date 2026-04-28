@@ -10,7 +10,7 @@ type UseLiveQueryOptions<T> = {
 
 export function useLiveQuery<T>({
   initialData,
-  intervalMs = 5000,
+  intervalMs = 10000,
   query,
 }: UseLiveQueryOptions<T>) {
   const [data, setData] = useState(initialData);

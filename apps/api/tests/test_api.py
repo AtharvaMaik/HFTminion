@@ -597,7 +597,7 @@ def test_live_mode_overview_uses_persisted_snapshot_history_for_trend(
 ):
     base_time = datetime.utcnow().replace(microsecond=0, second=0)
     bucket_a = base_time - timedelta(seconds=10)
-    bucket_b = base_time - timedelta(seconds=5)
+    bucket_b = base_time
 
     monkeypatch.setattr(
         "app.services.live_vendor.LiveFeedRefreshService.refresh_registered_live_feeds",

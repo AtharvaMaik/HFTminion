@@ -56,7 +56,7 @@ export function OverviewLivePanel({
               </h2>
             </div>
             <div className="rounded-full bg-cyan-400/10 px-3 py-1 font-[family-name:var(--font-mono)] text-sm text-cyan-100">
-              {isRefreshing ? "SYNCING" : "LIVE 5S"}
+              {isRefreshing ? "SYNCING" : "LIVE 10S"}
             </div>
           </div>
           <ReliabilityChart data={overview.trust_timeseries} />

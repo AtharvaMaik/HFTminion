@@ -175,7 +175,7 @@ class CurrentStateService:
 
         buckets: dict[datetime, list[float]] = defaultdict(list)
         for snapshot in recent_snapshots:
-            bucket_second = snapshot.computed_at.second - (snapshot.computed_at.second % 5)
+            bucket_second = snapshot.computed_at.second - (snapshot.computed_at.second % 10)
             bucket_time = snapshot.computed_at.replace(second=bucket_second, microsecond=0)
             buckets[bucket_time].append(snapshot.weighted_trust_score)
 
